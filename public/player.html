@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>La Mafia — Unirse</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body class="player">
+  <main class="join-screen">
+    <h1>🐺 La Mafia</h1>
+
+    <form id="joinForm">
+      <label>
+        Código de sala
+        <input id="codeInput" maxlength="4" placeholder="ABCD" autocapitalize="characters" required />
+      </label>
+      <label>
+        Tu nombre
+        <input id="nameInput" maxlength="20" placeholder="Tu nombre" required />
+      </label>
+      <button type="submit">Unirme</button>
+    </form>
+
+    <p id="errorMsg" class="error"></p>
+
+    <div id="waitingRoom" class="hidden">
+      <p>✅ Estás adentro, <strong id="myName"></strong>.</p>
+      <p class="hint">Esperando a que el resto se una / arranque la partida...</p>
+    </div>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="player.js"></script>
+</body>
+</html>

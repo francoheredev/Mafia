@@ -1,0 +1,155 @@
+:root {
+  --bg: #10141f;
+  --panel: #1b2233;
+  --accent: #e8c07d;
+  --text: #f1ede4;
+  --muted: #8a93a6;
+  --danger: #e07a5f;
+  --ok: #6fbf73;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #1a2036, var(--bg));
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+h1 {
+  text-align: center;
+  font-size: 2rem;
+  margin-bottom: 4px;
+}
+
+.subtitle, .hint {
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+/* ---- Pantalla compartida ---- */
+.lobby-screen {
+  width: 100%;
+  max-width: 720px;
+  text-align: center;
+}
+
+.code-panel {
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 24px;
+  margin: 24px 0;
+}
+
+#qrcode {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.room-code {
+  font-size: 3rem;
+  letter-spacing: 0.4em;
+  font-weight: bold;
+  color: var(--accent);
+}
+
+.players-panel {
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 16px 24px;
+}
+
+.player-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.player-list li {
+  background: #262f45;
+  padding: 8px 14px;
+  border-radius: 999px;
+}
+
+.player.offline { color: var(--muted); text-decoration: line-through; }
+.player.online { color: var(--ok); }
+
+/* ---- Celular ---- */
+.join-screen {
+  width: 100%;
+  max-width: 360px;
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 24px;
+}
+
+form { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+input {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #333c52;
+  background: #0f1420;
+  color: var(--text);
+  font-size: 1.1rem;
+  text-align: center;
+}
+
+button {
+  padding: 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #1a1a1a;
+  font-weight: bold;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.error { color: var(--danger); text-align: center; min-height: 1.2em; }
+.hidden { display: none; }
+
+/* ---- Botón de empezar partida ---- */
+#startBtn {
+  margin-top: 12px;
+}
+#startBtn:disabled {
+  background: #3a4256;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* ---- Tarjeta de rol (celular) ---- */
+.role-card {
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
+  border: 2px solid transparent;
+}
+.role-card h2 { font-size: 1.6rem; margin: 8px 0; }
+.role-team { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+.role-desc { color: var(--text); }
+.accomplices { margin-top: 12px; color: var(--danger); }
+
+.role-card.team-mafia { border-color: var(--danger); background: #2a1a1f; }
+.role-card.team-ciudad { border-color: #5b8dd6; background: #1a2233; }
+.role-card.team-independiente { border-color: var(--accent); background: #2a2419; }

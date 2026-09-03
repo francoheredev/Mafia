@@ -1,0 +1,19 @@
+{
+  "name": "la-mafia-lobby",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Esqueleto técnico: pantalla compartida + celular como control, unidos por un lobby en tiempo real. Primer paso del proyecto La Mafia (ver GDD).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test:flow": "node test-flow.js",
+    "test:roles": "node test-roles.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.7.5"
+  }
+}
