@@ -8,7 +8,10 @@
     "start": "node server.js",
     "test:flow": "node test-flow.js",
     "test:roles": "node test-roles.js",
-    "test:night": "node test-night.js"
+    "test:night": "node test-night.js",
+    "test:day": "node test-day.js",
+    "test:win-ciudad": "node test-win-ciudad.js",
+    "test:win-mafia": "node test-win-mafia.js"
   },
   "dependencies": {
     "express": "^4.19.2",

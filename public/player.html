@@ -30,6 +30,16 @@
     </div>
   </main>
 
+  <!-- Fuera de <main> a propósito: así sobreviven a los reemplazos de
+       #waitingRoom en cada fase y el rol queda siempre disponible. -->
+  <button id="roleFab" class="role-fab hidden">🎭</button>
+  <div id="roleModal" class="role-modal hidden">
+    <div class="role-modal-panel">
+      <button id="roleModalClose" class="role-modal-close">✕</button>
+      <div id="roleModalContent"></div>
+    </div>
+  </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script src="player.js"></script>
 </body>

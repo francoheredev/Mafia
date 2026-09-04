@@ -45,37 +45,10 @@ document.getElementById("startBtn").addEventListener("click", () => {
   });
 });
 
-socket.on("game:started", ({ playerCount, roles, revealMs }) => {
-  const rolesHtml = roles
-    .map(
-      (r) => `
-        <div class="role-chip team-${r.team}">
-          <span class="role-chip-icon">${r.icon}</span>
-          <span class="role-chip-name">${r.narrativeName}${r.count > 1 ? ` ×${r.count}` : ""}</span>
-        </div>
-      `
-    )
-    .join("");
-
-  document.querySelector(".lobby-screen").innerHTML = `
-    <h1>🎭 Roles repartidos</h1>
-    <p class="subtitle">${playerCount} jugadores ya tienen su rol en el celular.</p>
-    <p class="hint">Estos son los roles en juego esta partida (en secreto, cada quien sabe el suyo):</p>
-    <div class="roles-catalog">${rolesHtml}</div>
-    <p class="hint" id="revealCountdown"></p>
-  `;
-
-  if (revealMs) {
-    startCountdown(document.getElementById("revealCountdown"), revealMs, (el, s) => {
-      el.textContent = `🌙 La noche cae en ${s}s...`;
-    });
-  }
-});
-
 // Cronómetro genérico (se usa para la cuenta de "cae la noche" y para el
-// tiempo límite de las acciones nocturnas). Solo corre un intervalo a la
-// vez: cada llamada corta el anterior para no dejar timers colgados cuando
-// cambia la pantalla.
+// tiempo límite de las acciones nocturnas/diurnas). Solo corre un intervalo
+// a la vez: cada llamada corta el anterior para no dejar timers colgados
+// cuando cambia la pantalla.
 let activeCountdownTimer = null;
 function startCountdown(el, ms, render) {
   clearInterval(activeCountdownTimer);
@@ -90,9 +63,77 @@ function startCountdown(el, ms, render) {
   activeCountdownTimer = setInterval(tick, 1000);
 }
 
-// Acomoda los avatares de los jugadores en ronda, como una aldea reunida
-// de noche alrededor del fuego.
-function renderNightCircle(players) {
+// Todo reemplazo de la pantalla principal pasa por acá — así cualquier paso
+// de narrativa que haya quedado pendiente de la fase anterior se corta
+// antes de que la fase nueva se dibuje encima.
+let narrativeTimer = null;
+function renderScreen(html) {
+  clearTimeout(narrativeTimer);
+  document.querySelector(".lobby-screen").innerHTML = html;
+}
+
+// Reproduce una secuencia de "beats" narrativos, uno a la vez, con una
+// pausa entre cada uno, y al final deja la pantalla de resultado fija.
+// `onDone` avisa al servidor que ya se puede pasar a la próxima fase.
+function playNarrative(steps, finalHtml, onDone) {
+  clearTimeout(narrativeTimer);
+  const container = document.querySelector(".lobby-screen");
+  let i = 0;
+  function step() {
+    if (i >= steps.length) {
+      container.innerHTML = finalHtml;
+      onDone?.();
+      return;
+    }
+    container.classList.remove("narrative-fade-in");
+    container.innerHTML = steps[i].html;
+    void container.offsetWidth; // reinicia la animación CSS
+    container.classList.add("narrative-fade-in");
+    narrativeTimer = setTimeout(step, steps[i].delayMs ?? 2200);
+    i++;
+  }
+  step();
+}
+
+function narrativeBeat(icon, text) {
+  return `
+    <div class="narrative-beat">
+      <span class="narrative-icon">${icon}</span>
+      <p class="narrative-text">${text}</p>
+    </div>
+  `;
+}
+
+socket.on("game:started", ({ playerCount, roles, revealMs }) => {
+  const rolesHtml = roles
+    .map(
+      (r) => `
+        <div class="role-chip team-${r.team}">
+          <span class="role-chip-icon">${r.icon}</span>
+          <span class="role-chip-name">${r.narrativeName}${r.count > 1 ? ` ×${r.count}` : ""}</span>
+        </div>
+      `
+    )
+    .join("");
+
+  renderScreen(`
+    <h1>🎭 Roles repartidos</h1>
+    <p class="subtitle">${playerCount} jugadores ya tienen su rol en el celular.</p>
+    <p class="hint">Estos son los roles en juego esta partida (en secreto, cada quien sabe el suyo):</p>
+    <div class="roles-catalog">${rolesHtml}</div>
+    <p class="hint" id="revealCountdown"></p>
+  `);
+
+  if (revealMs) {
+    startCountdown(document.getElementById("revealCountdown"), revealMs, (el, s) => {
+      el.textContent = `🌙 La noche cae en ${s}s...`;
+    });
+  }
+});
+
+// Acomoda los avatares de los jugadores en ronda (de noche alrededor del
+// fuego, de día alrededor de la aldea). Se reutiliza en Noche y Día.
+function renderPlayerCircle(players, centerIcon) {
   const n = players.length;
   const radius = 120;
   const items = players
@@ -108,21 +149,65 @@ function renderNightCircle(players) {
       `;
     })
     .join("");
-  return `<div class="night-circle-wrap"><div class="night-circle-center">🔥</div>${items}</div>`;
+  return `<div class="night-circle-wrap"><div class="night-circle-center">${centerIcon}</div>${items}</div>`;
+}
+
+function renderVoteResults(results) {
+  if (!results.length) return "";
+  return `<ul class="death-list">${results
+    .map((r) => `<li>${r.icon} <strong>${r.name}</strong> — ${r.votes} voto${r.votes === 1 ? "" : "s"}</li>`)
+    .join("")}</ul>`;
+}
+
+// Pantalla de fin de partida: anuncia el bando ganador (o empate) y revela
+// el rol de todos — a diferencia de una muerte puntual, el cierre del juego
+// sí muestra quién era quién.
+function gameOverBeat(winner) {
+  if (winner === "mafia") {
+    return narrativeBeat("🐺", "La Mafia ya controla el pueblo entero...");
+  }
+  if (winner === "ciudad") {
+    return narrativeBeat("🏘️", "El último mafioso ha caído. La aldea respira tranquila...");
+  }
+  return narrativeBeat("🤝", "No queda nadie en pie para contarlo...");
+}
+
+function gameOverFinalHtml(winner, roster) {
+  const title =
+    winner === "mafia"
+      ? "🐺 ¡Gana la Mafia!"
+      : winner === "ciudad"
+      ? "🏘️ ¡Gana la Ciudad!"
+      : "🤝 Empate — nadie quedó en pie";
+  const rosterHtml = (roster || [])
+    .map(
+      (p) => `
+        <div class="role-chip team-${p.team}">
+          <span class="role-chip-icon">${p.icon}</span>
+          <span class="role-chip-name">${p.name} — ${p.narrativeName}${p.alive ? "" : " 💀"}</span>
+        </div>
+      `
+    )
+    .join("");
+  return `
+    <h1>${title}</h1>
+    <p class="subtitle">La partida terminó. Estos eran los roles de todos:</p>
+    <div class="roles-catalog">${rosterHtml}</div>
+  `;
 }
 
 socket.on("night:begin", ({ number, players, timeoutMs }) => {
-  document.querySelector(".lobby-screen").innerHTML = `
+  renderScreen(`
     <h1>🌙 Cae la noche (#${number})</h1>
     <p class="subtitle">Los jugadores están decidiendo en su celular...</p>
-    ${renderNightCircle(players)}
+    ${renderPlayerCircle(players, "🔥")}
     <ul class="night-progress">
       <li id="npMafia">🐺 La Mafia elige a su víctima…</li>
       <li id="npDetective">🔮 El Vidente investiga…</li>
       <li id="npMedico">💊 El Médico protege…</li>
     </ul>
     <p class="night-timer" id="nightTimer"></p>
-  `;
+  `);
 
   if (timeoutMs) {
     startCountdown(document.getElementById("nightTimer"), timeoutMs, (el, s) => {
@@ -143,23 +228,216 @@ socket.on("night:progress", ({ mafiaDone, detectiveDone, medicoDone, actedIds })
   });
 });
 
-socket.on("night:resolved", ({ number, deaths, saved }) => {
-  clearInterval(activeCountdownTimer);
+socket.on("night:resolved", ({ number, deaths, saved, winner, roster }) => {
+  const steps = [
+    { html: narrativeBeat("🌫️", "La niebla se aferra al pueblo mientras la noche cae sobre todos...") },
+    { html: narrativeBeat("🐺", "Entre las sombras, la Mafia acecha en silencio...") },
+  ];
 
-  let body;
   if (deaths.length === 0) {
-    body = saved
-      ? `<p class="hint">💊 El Médico llegó justo a tiempo. Nadie murió esta noche.</p>`
-      : `<p class="hint">La Mafia no atacó. Nadie murió esta noche.</p>`;
+    steps.push({
+      html: saved
+        ? narrativeBeat("💊", "Algo — o alguien — los detiene justo a tiempo...")
+        : narrativeBeat("🌙", "Pero esta noche, la Mafia no encuentra su oportunidad..."),
+    });
   } else {
-    // No se revela el rol de quien murió — eso se descubre durante el Día.
-    body = `<ul class="death-list">${deaths
-      .map((d) => `<li>💀 <span class="death-icon">${d.icon}</span> <strong>${d.name}</strong> murió esta noche.</li>`)
-      .join("")}</ul>`;
+    const [victim, ...rest] = deaths;
+    steps.push(
+      {
+        html: narrativeBeat("🩸", `Se abalanzan sobre <strong>${victim.icon} ${victim.name}</strong>...`),
+        delayMs: 2600,
+      },
+      {
+        html: narrativeBeat("💀", `...y el amanecer llega sin <strong>${victim.name}</strong>.`),
+        delayMs: 2600,
+      }
+    );
+    rest.forEach((extra) => {
+      // No se nombra el rol acá — la venganza del Cazador ya se infiere
+      // por eliminación, no hace falta subrayarlo.
+      steps.push({
+        html: narrativeBeat(
+          "🏹",
+          `Pero antes de caer, algo se despierta... y arrastra también a <strong>${extra.icon} ${extra.name}</strong>.`
+        ),
+        delayMs: 2600,
+      });
+    });
   }
-  document.querySelector(".lobby-screen").innerHTML = `
-    <h1>☀️ Amanece (noche #${number})</h1>
-    ${body}
-    <p class="hint">(Próximo paso a programar: ciclo Día — Fases 2-6 del GDD)</p>
+
+  let finalHtml;
+  if (deaths.length === 0) {
+    finalHtml = `
+      <h1>☀️ Amanece (noche #${number})</h1>
+      <p class="hint">${
+        saved
+          ? "💊 El Médico llegó justo a tiempo. Nadie murió esta noche."
+          : "La Mafia no atacó. Nadie murió esta noche."
+      }</p>
+    `;
+  } else {
+    finalHtml = `
+      <h1>☀️ Amanece (noche #${number})</h1>
+      <ul class="death-list">${deaths
+        .map(
+          (d) =>
+            `<li>💀 <span class="death-icon">${d.icon}</span> <strong>${d.name}</strong> murió esta noche.</li>`
+        )
+        .join("")}</ul>
+    `;
+  }
+
+  if (winner) {
+    steps.push({ html: gameOverBeat(winner), delayMs: 2600 });
+    finalHtml = gameOverFinalHtml(winner, roster);
+    playNarrative(steps, finalHtml); // sin onDone: acá termina la partida
+  } else {
+    playNarrative(steps, finalHtml, () => socket.emit("day:advance"));
+  }
+});
+
+// --- Ciclo Día ---
+
+socket.on("day:discussion", ({ number, players, timeoutMs }) => {
+  renderScreen(`
+    <h1>💬 Discusión (Día #${number})</h1>
+    <p class="subtitle">Discutan en persona quién puede ser sospechoso...</p>
+    ${renderPlayerCircle(players, "🏘️")}
+    <p class="night-timer" id="nightTimer"></p>
+    <button id="advanceBtn" class="advance-btn">Pasar a la votación →</button>
+  `);
+  startCountdown(document.getElementById("nightTimer"), timeoutMs, (el, s) => {
+    el.textContent = `⏳ ${s}s de discusión`;
+  });
+  document.getElementById("advanceBtn").addEventListener("click", () => {
+    socket.emit("day:advance");
+  });
+});
+
+socket.on("day:voting", ({ players, timeoutMs }) => {
+  renderScreen(`
+    <h1>🗳️ Votación</h1>
+    <p class="subtitle">Cada uno vota en su celular a quién acusar (o se abstiene)...</p>
+    ${renderPlayerCircle(players, "🗳️")}
+    <p class="night-timer" id="nightTimer"></p>
+  `);
+  startCountdown(document.getElementById("nightTimer"), timeoutMs, (el, s) => {
+    el.textContent = `⏳ ${s}s para votar`;
+  });
+});
+
+socket.on("day:votingProgress", ({ votedIds }) => {
+  document.querySelectorAll(".night-avatar").forEach((el) => el.classList.remove("done"));
+  votedIds.forEach((id) => document.getElementById(`avatar-${id}`)?.classList.add("done"));
+});
+
+socket.on("day:noAccusation", ({ results }) => {
+  const steps = [
+    { html: narrativeBeat("🗳️", "Los votos quedan repartidos entre varios...") },
+    { html: narrativeBeat("🤝", "Nadie logra ponerse de acuerdo. La aldea sigue igual.") },
+  ];
+
+  const finalHtml = `
+    <h1>🤝 Nadie fue acusado</h1>
+    ${renderVoteResults(results)}
   `;
+
+  playNarrative(steps, finalHtml, () => socket.emit("day:advance"));
+});
+
+socket.on("day:defense", ({ accused, results, timeoutMs }) => {
+  renderScreen(`
+    <h1>⚖️ Defensa</h1>
+    <p class="subtitle"><span class="accused-icon">${accused.icon}</span> <strong>${accused.name}</strong> es el/la más acusado/a. Tiene la palabra...</p>
+    ${renderVoteResults(results)}
+    <p class="night-timer" id="nightTimer"></p>
+    <button id="advanceBtn" class="advance-btn">Pasar al juicio →</button>
+  `);
+  startCountdown(document.getElementById("nightTimer"), timeoutMs, (el, s) => {
+    el.textContent = `⏳ ${s}s para defenderse`;
+  });
+  document.getElementById("advanceBtn").addEventListener("click", () => {
+    socket.emit("day:advance");
+  });
+});
+
+socket.on("day:trial", ({ accused, timeoutMs }) => {
+  renderScreen(`
+    <h1>⚖️ Juicio</h1>
+    <p class="subtitle"><span class="accused-icon">${accused.icon}</span> <strong>${accused.name}</strong>: ¿culpable o inocente?</p>
+    <p class="hint">El resto vota en su celular (${accused.name} no vota su propio juicio)...</p>
+    <p class="hint" id="verdictProgress"></p>
+    <p class="night-timer" id="nightTimer"></p>
+  `);
+  startCountdown(document.getElementById("nightTimer"), timeoutMs, (el, s) => {
+    el.textContent = `⏳ ${s}s para el veredicto`;
+  });
+});
+
+socket.on("day:verdictProgress", ({ votedIds }) => {
+  const el = document.getElementById("verdictProgress");
+  if (el) el.textContent = `Votaron ${votedIds.length}...`;
+});
+
+socket.on("day:resolved", ({ executed, guiltyCount, innocentCount, accused, deaths, winner, roster }) => {
+  const steps = [
+    { html: narrativeBeat("⚖️", "El pueblo se reúne bajo el sol para dictar sentencia...") },
+    { html: narrativeBeat("🗣️", "Los votos se cuentan, uno por uno...") },
+  ];
+
+  const revenge = deaths.slice(1); // si el ejecutado era el Cazador, se lleva a alguien más
+
+  if (executed) {
+    steps.push({
+      html: narrativeBeat(
+        "💀",
+        `<strong>${accused.icon} ${accused.name}</strong> es declarado/a culpable... y ejecutado/a ante la mirada de todos.`
+      ),
+      delayMs: 2600,
+    });
+    revenge.forEach((extra) => {
+      steps.push({
+        html: narrativeBeat(
+          "🏹",
+          `Pero antes de caer, algo se despierta... y arrastra también a <strong>${extra.icon} ${extra.name}</strong>.`
+        ),
+        delayMs: 2600,
+      });
+    });
+  } else {
+    steps.push({
+      html: narrativeBeat(
+        "🕊️",
+        `La duda pesa más que la certeza... <strong>${accused.icon} ${accused.name}</strong> es absuelto/a.`
+      ),
+      delayMs: 2600,
+    });
+  }
+
+  const extraDeathsHtml = revenge.length
+    ? `<ul class="death-list">${revenge
+        .map((d) => `<li>💀 <span class="death-icon">${d.icon}</span> <strong>${d.name}</strong> también murió.</li>`)
+        .join("")}</ul>`
+    : "";
+
+  let finalHtml = `
+    <h1>⚰️ Veredicto</h1>
+    <p class="subtitle">
+      ${
+        executed
+          ? `💀 <span class="accused-icon">${accused.icon}</span> <strong>${accused.name}</strong> fue ejecutado/a.`
+          : `✅ <span class="accused-icon">${accused.icon}</span> <strong>${accused.name}</strong> fue absuelto/a. Sigue en el juego.`
+      }
+    </p>
+    ${extraDeathsHtml}
+    <p class="hint">Culpable: ${guiltyCount} · Inocente: ${innocentCount}</p>
+  `;
+
+  if (winner) {
+    steps.push({ html: gameOverBeat(winner), delayMs: 2600 });
+    finalHtml = gameOverFinalHtml(winner, roster);
+    playNarrative(steps, finalHtml); // sin onDone: acá termina la partida
+  } else {
+    playNarrative(steps, finalHtml, () => socket.emit("day:advance"));
+  }
 });

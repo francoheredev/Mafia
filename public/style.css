@@ -156,6 +156,59 @@ button {
 .role-card.team-ciudad { border-color: #5b8dd6; background: #1a2233; }
 .role-card.team-independiente { border-color: var(--accent); background: #2a2419; }
 
+/* ---- Botón fijo "ver mi rol" + modal (celular) ---- */
+.role-fab {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 50;
+}
+.role-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 13, 20, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 100;
+}
+.role-modal-panel {
+  width: 100%;
+  max-width: 360px;
+  position: relative;
+}
+.role-modal-close {
+  position: absolute;
+  top: -14px;
+  right: -14px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 1px solid #333c52;
+  color: var(--text);
+  font-size: 1rem;
+}
+/* .role-fab y .role-modal fijan su propio "display", así que necesitan
+   más especificidad que ".hidden" sola para poder ocultarse de verdad
+   (si no, gana la regla que esté más abajo en el archivo, sin importar
+   cuál sea "más" oculta). */
+.role-fab.hidden,
+.role-modal.hidden {
+  display: none;
+}
+
 /* ---- Catálogo de roles en juego (pantalla) ---- */
 .roles-catalog {
   display: flex;
@@ -275,6 +328,46 @@ button {
   text-align: center;
 }
 
+/* ---- Narrativa cinemática (pantalla) ---- */
+@keyframes narrativeFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.lobby-screen.narrative-fade-in {
+  animation: narrativeFadeIn 0.5s ease;
+}
+.narrative-beat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 48px 24px;
+}
+.narrative-icon {
+  font-size: 3rem;
+}
+.narrative-text {
+  font-size: 1.2rem;
+  max-width: 480px;
+  line-height: 1.5;
+}
+
+/* ---- Ciclo Día (pantalla) ---- */
+.advance-btn {
+  display: block;
+  margin: 16px auto 0;
+  width: auto;
+  padding: 12px 24px;
+  background: transparent;
+  border: 2px solid var(--accent);
+  color: var(--accent);
+}
+.advance-btn:hover {
+  background: var(--accent);
+  color: #1a1a1a;
+}
+.accused-icon { font-size: 1.3rem; }
+
 /* ---- Ciclo Noche (celular) ---- */
 .night-panel { text-align: center; }
 .night-panel h2 { margin-top: 0; }
@@ -299,4 +392,39 @@ button {
   gap: 6px;
 }
 .target-btn:hover { border-color: var(--accent); }
+.target-btn.selected {
+  border-color: var(--danger);
+  background: #2a1a1f;
+}
+
+.suggestions-list {
+  max-width: 360px;
+  font-size: 0.85rem;
+}
+.suggestions-list li em { color: var(--muted); font-style: normal; }
 .target-icon { font-size: 1.1rem; }
+
+.abstain-btn {
+  margin-top: 4px;
+  background: transparent;
+  border: 1px solid #333c52;
+  color: var(--muted);
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  width: auto;
+}
+.abstain-btn:hover { border-color: var(--muted); color: var(--text); }
+
+.verdict-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin: 16px 0;
+}
+.verdict-btn {
+  width: auto;
+  padding: 14px 24px;
+  font-size: 1rem;
+}
+.guilty-btn { background: var(--danger); color: #1a1a1a; }
+.innocent-btn { background: var(--ok); color: #1a1a1a; }

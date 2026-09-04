@@ -65,15 +65,12 @@ function startCountdown(el, ms, render) {
   activeCountdownTimer = setInterval(tick, 1000);
 }
 
-socket.on("role:assigned", (role) => {
-  const waitingRoom = document.getElementById("waitingRoom");
+function buildRoleCardHtml(role) {
   const accomplicesHtml =
     role.accomplices && role.accomplices.length
       ? `<p class="accomplices">Tus cómplices: <strong>${role.accomplices.join(", ")}</strong></p>`
       : "";
-
-  waitingRoom.classList.remove("hidden");
-  waitingRoom.innerHTML = `
+  return `
     <div class="role-card team-${role.team}">
       <p class="role-team">${teamLabel(role.team)}</p>
       <div class="role-icon">${role.icon}</div>
@@ -81,6 +78,38 @@ socket.on("role:assigned", (role) => {
       <p class="role-desc">${role.description}</p>
       ${accomplicesHtml}
     </div>
+  `;
+}
+
+// Se guarda en memoria para que el botón "ver mi rol" pueda mostrarlo de
+// nuevo en cualquier momento, aunque la pantalla de #waitingRoom ya haya
+// cambiado varias veces.
+let myRole = null;
+
+const roleFab = document.getElementById("roleFab");
+const roleModal = document.getElementById("roleModal");
+const roleModalContent = document.getElementById("roleModalContent");
+
+roleFab.addEventListener("click", () => {
+  if (!myRole) return;
+  roleModalContent.innerHTML = buildRoleCardHtml(myRole);
+  roleModal.classList.remove("hidden");
+});
+document.getElementById("roleModalClose").addEventListener("click", () => {
+  roleModal.classList.add("hidden");
+});
+roleModal.addEventListener("click", (e) => {
+  if (e.target === roleModal) roleModal.classList.add("hidden");
+});
+
+socket.on("role:assigned", (role) => {
+  myRole = role;
+  roleFab.classList.remove("hidden");
+
+  const waitingRoom = document.getElementById("waitingRoom");
+  waitingRoom.classList.remove("hidden");
+  waitingRoom.innerHTML = `
+    ${buildRoleCardHtml(role)}
     <p class="hint" id="revealCountdown">Memorizá tu rol antes de que caiga la noche...</p>
   `;
 
@@ -89,16 +118,55 @@ socket.on("role:assigned", (role) => {
   });
 });
 
-function renderTargetButtons(container, targets, onPick) {
+function renderTargetButtons(container, targets, onPick, selectedId = null) {
   container.innerHTML = targets
     .map(
       (t) =>
-        `<button class="target-btn" data-id="${t.id}"><span class="target-icon">${t.icon}</span>${t.name}</button>`
+        `<button class="target-btn${t.id === selectedId ? " selected" : ""}" data-id="${t.id}"><span class="target-icon">${t.icon}</span>${t.name}</button>`
     )
     .join("");
   container.querySelectorAll(".target-btn").forEach((btn) => {
     btn.addEventListener("click", () => onPick(btn.dataset.id));
   });
+}
+
+// Panel de "quién sugiere qué" dentro de la reunión de la Mafia — vive en
+// su propio contenedor fijo (#mafiaSuggestionsList) para no tener que
+// redibujar toda la pantalla (y de paso el cronómetro) cada vez que llega
+// una sugerencia nueva.
+function mafiaSuggestionsPanelHtml() {
+  return `<ul id="mafiaSuggestionsList" class="death-list suggestions-list"></ul>`;
+}
+socket.on("night:mafiaSuggestions", ({ suggestions }) => {
+  const list = document.getElementById("mafiaSuggestionsList");
+  if (!list) return; // ya no está en pantalla (ej. el líder ya confirmó)
+  list.innerHTML = suggestions.length
+    ? suggestions
+        .map(
+          (s) =>
+            `<li><span class="death-icon">${s.voterIcon}</span>${s.voterName} → ${
+              s.targetId
+                ? `<span class="death-icon">${s.targetIcon}</span>${s.targetName}`
+                : "<em>sin decidir</em>"
+            }</li>`
+        )
+        .join("")
+    : `<li class="hint">Nadie sugirió un objetivo todavía.</li>`;
+});
+
+function gameOverPanelHtml(winner) {
+  const title =
+    winner === "mafia"
+      ? "🐺 Gana la Mafia"
+      : winner === "ciudad"
+      ? "🏘️ Gana la Ciudad"
+      : "🤝 Empate";
+  return `
+    <div class="night-panel">
+      <h2>${title}</h2>
+      <p class="hint">🎉 Partida terminada — mirá la pantalla para ver los roles de todos.</p>
+    </div>
+  `;
 }
 
 function renderTimerHtml(timeoutMs) {
@@ -128,11 +196,22 @@ socket.on("night:mafiaTurn", ({ isLeader, leaderName, targets, timeoutMs }) => {
     waitingRoom.innerHTML = `
       <div class="night-panel">
         <h2>🐺 Reunión de la Mafia</h2>
-        <p class="hint">Esta noche decide <strong>${leaderName}</strong>. Esperá su elección...</p>
+        <p class="hint">Esta noche decide <strong>${leaderName}</strong>. Marcá a quién matarías vos — el resto de la Mafia lo ve, pero no es definitivo.</p>
+        <div id="targetButtons" class="target-list"></div>
+        ${mafiaSuggestionsPanelHtml()}
         ${renderTimerHtml(timeoutMs)}
       </div>
     `;
     startNightTimer(timeoutMs);
+
+    const container = document.getElementById("targetButtons");
+    let mySuggestedId = null;
+    const pick = (targetId) => {
+      mySuggestedId = mySuggestedId === targetId ? null : targetId;
+      socket.emit("night:mafiaSuggest", { targetId: mySuggestedId });
+      renderTargetButtons(container, targets, pick, mySuggestedId);
+    };
+    renderTargetButtons(container, targets, pick, mySuggestedId);
     return;
   }
 
@@ -140,6 +219,7 @@ socket.on("night:mafiaTurn", ({ isLeader, leaderName, targets, timeoutMs }) => {
     <div class="night-panel">
       <h2>🐺 Elegí a la víctima</h2>
       <p class="hint">Esta noche sos vos quien decide.</p>
+      ${mafiaSuggestionsPanelHtml()}
       <div id="targetButtons" class="target-list"></div>
       <p id="nightError" class="error"></p>
       ${renderTimerHtml(timeoutMs)}
@@ -212,8 +292,12 @@ socket.on("night:investigateResult", ({ targetName, isMafia }) => {
   `;
 });
 
-socket.on("night:resolved", ({ deaths }) => {
+socket.on("night:resolved", ({ deaths, winner }) => {
   clearInterval(activeCountdownTimer);
+  if (winner) {
+    document.getElementById("waitingRoom").innerHTML = gameOverPanelHtml(winner);
+    return;
+  }
   const iDied = deaths.some((d) => d.id === socket.id);
   document.getElementById("waitingRoom").innerHTML = iDied
     ? `
@@ -226,6 +310,152 @@ socket.on("night:resolved", ({ deaths }) => {
       <div class="night-panel">
         <h2>☀️ Amanece</h2>
         <p class="hint">Mirá la pantalla para ver qué pasó esta noche.</p>
+      </div>
+    `;
+});
+
+// --- Ciclo Día ---
+
+socket.on("day:discussionPhone", ({ timeoutMs }) => {
+  document.getElementById("waitingRoom").innerHTML = `
+    <div class="night-panel">
+      <h2>💬 Es de día</h2>
+      <p class="hint">Discutan en persona quién puede ser sospechoso. Mirá la pantalla.</p>
+      ${renderTimerHtml(timeoutMs)}
+    </div>
+  `;
+  startNightTimer(timeoutMs);
+});
+
+socket.on("day:yourVote", ({ targets, timeoutMs }) => {
+  const waitingRoom = document.getElementById("waitingRoom");
+  waitingRoom.innerHTML = `
+    <div class="night-panel">
+      <h2>🗳️ ¿A quién acusás?</h2>
+      <div id="targetButtons" class="target-list"></div>
+      <button id="abstainBtn" class="abstain-btn">Abstenerme</button>
+      <p id="nightError" class="error"></p>
+      ${renderTimerHtml(timeoutMs)}
+    </div>
+  `;
+  startNightTimer(timeoutMs);
+
+  const submitVote = (targetId) => {
+    socket.emit("day:vote", { targetId }, (res) => {
+      if (!res.ok) {
+        document.getElementById("nightError").textContent = res.error;
+        return;
+      }
+      clearInterval(activeCountdownTimer);
+      waitingRoom.innerHTML = `
+        <div class="night-panel">
+          <h2>🗳️ Listo</h2>
+          <p class="hint">Ya votaste. Esperando al resto...</p>
+        </div>
+      `;
+    });
+  };
+
+  renderTargetButtons(document.getElementById("targetButtons"), targets, submitVote);
+  document.getElementById("abstainBtn").addEventListener("click", () => submitVote(null));
+});
+
+socket.on("day:yourDefense", ({ timeoutMs }) => {
+  document.getElementById("waitingRoom").innerHTML = `
+    <div class="night-panel">
+      <h2>⚖️ ¡Te acusaron!</h2>
+      <p class="hint">Es tu turno de defenderte en voz alta.</p>
+      ${renderTimerHtml(timeoutMs)}
+    </div>
+  `;
+  startNightTimer(timeoutMs);
+});
+
+socket.on("day:watchDefense", ({ accusedName, timeoutMs }) => {
+  document.getElementById("waitingRoom").innerHTML = `
+    <div class="night-panel">
+      <h2>⚖️ Defensa</h2>
+      <p class="hint">Escuchá la defensa de <strong>${accusedName}</strong>.</p>
+      ${renderTimerHtml(timeoutMs)}
+    </div>
+  `;
+  startNightTimer(timeoutMs);
+});
+
+socket.on("day:yourVerdict", ({ timeoutMs }) => {
+  const waitingRoom = document.getElementById("waitingRoom");
+  waitingRoom.innerHTML = `
+    <div class="night-panel">
+      <h2>⚖️ Tu veredicto</h2>
+      <div class="verdict-buttons">
+        <button id="guiltyBtn" class="verdict-btn guilty-btn">Culpable</button>
+        <button id="innocentBtn" class="verdict-btn innocent-btn">Inocente</button>
+      </div>
+      <p id="nightError" class="error"></p>
+      ${renderTimerHtml(timeoutMs)}
+    </div>
+  `;
+  startNightTimer(timeoutMs);
+
+  const submitVerdict = (verdict) => {
+    socket.emit("day:verdict", { verdict }, (res) => {
+      if (!res.ok) {
+        document.getElementById("nightError").textContent = res.error;
+        return;
+      }
+      clearInterval(activeCountdownTimer);
+      waitingRoom.innerHTML = `
+        <div class="night-panel">
+          <h2>⚖️ Listo</h2>
+          <p class="hint">Ya votaste. Esperando al resto...</p>
+        </div>
+      `;
+    });
+  };
+
+  document.getElementById("guiltyBtn").addEventListener("click", () => submitVerdict("guilty"));
+  document.getElementById("innocentBtn").addEventListener("click", () => submitVerdict("innocent"));
+});
+
+socket.on("day:waitVerdict", ({ timeoutMs }) => {
+  document.getElementById("waitingRoom").innerHTML = `
+    <div class="night-panel">
+      <h2>⚖️ Están decidiendo</h2>
+      <p class="hint">El resto está votando tu veredicto...</p>
+      ${renderTimerHtml(timeoutMs)}
+    </div>
+  `;
+  startNightTimer(timeoutMs);
+});
+
+socket.on("day:noAccusation", () => {
+  clearInterval(activeCountdownTimer);
+  document.getElementById("waitingRoom").innerHTML = `
+    <div class="night-panel">
+      <h2>🤝 Nadie fue acusado</h2>
+      <p class="hint">Mirá la pantalla. Cae la próxima noche...</p>
+    </div>
+  `;
+});
+
+socket.on("day:resolved", ({ executed, deaths, winner }) => {
+  clearInterval(activeCountdownTimer);
+  if (winner) {
+    document.getElementById("waitingRoom").innerHTML = gameOverPanelHtml(winner);
+    return;
+  }
+  const iWasExecuted = executed && deaths.some((d) => d.id === socket.id);
+  document.getElementById("waitingRoom").innerHTML = iWasExecuted
+    ? `
+      <div class="night-panel">
+        <h2>💀 Te ejecutaron</h2>
+        <p class="hint">Mirá la pantalla para el resumen del juicio.</p>
+      </div>
+    `
+    : `
+      <div class="night-panel">
+        <h2>⚰️ Veredicto</h2>
+        <p class="hint">Mirá la pantalla para el resultado del juicio.</p>
       </div>
     `;
 });

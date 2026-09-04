@@ -1,8 +1,8 @@
-# La Mafia — Esqueleto técnico (lobby)
+# La Mafia
 
-Primer paso de código del proyecto, después del GDD. **Todavía no tiene juego** (roles, Día/Noche, votos) — solo valida que la arquitectura de base funcione de punta a punta: una pantalla compartida crea una sala, los celulares se unen escaneando un QR, y todo se sincroniza en vivo.
+Versión jugable del proyecto, después del GDD: una pantalla compartida crea una sala, los celulares se unen escaneando un QR, se reparten los roles, y se juega un ciclo completo de Noche (Mafia/Vidente/Médico) y Día (discusión, votación, defensa, juicio) sincronizado en vivo por WebSockets, hasta que se declara un bando ganador.
 
-Es intencional dejarlo así de acotado primero: es mucho más barato descubrir un problema de conexión/arquitectura ahora que una vez que ya haya roles y lógica de juego encima.
+Todavía falta el objetivo propio de cada Independiente (ver "Qué falta" más abajo) — hoy solo está el chequeo binario Mafia/Ciudad.
 
 ## Cómo correrlo
 
@@ -39,6 +39,16 @@ npm run test:night   # prueba con 10 jugadores: simula una noche completa
                       # (Mafia ataca, Vidente investiga al Padrino y lo ve
                       # inocente, Médico protege a otro jugador, y el Cazador
                       # muere y dispara su venganza)
+npm run test:day      # prueba con 10 jugadores: pasa una noche sin víctimas y
+                      # simula el ciclo Día completo (discusión, votación,
+                      # defensa, juicio con ejecución) hasta que vuelve a
+                      # caer la noche siguiente
+npm run test:win-ciudad  # prueba con 6 jugadores: ejecuta a toda la Mafia
+                      # de a uno por vez hasta que se declara "Gana la
+                      # Ciudad" y confirma que el ciclo se frena ahí
+npm run test:win-mafia   # prueba con 6 jugadores: la Mafia mata de noche sin
+                      # oposición hasta superar en número a los buenos y se
+                      # declara "Gana la Mafia"
 ```
 
 Si ves "🎉 ..." al final de cada uno, está todo bien.
@@ -51,14 +61,19 @@ Si ves "🎉 ..." al final de cada uno, está todo bien.
 - **Asignación de roles (Fase 0 del GDD):** al tocar "Empezar partida" en la pantalla (habilitado con 6-10 jugadores conectados), el servidor sortea el catálogo MVP (`roles.js`) y le manda a cada celular su rol en privado. Los mafiosos ven en su tarjeta a sus cómplices, tal como quedó definido.
   - ⚠️ **Ajuste al GDD:** se agregó un rol "Aldeano" (sin habilidad) que no estaba en el catálogo original — hacía falta para completar el bando Ciudad en partidas de 7+ jugadores, ya que el MVP solo tiene 3 roles Ciudad con habilidad.
   - ⚠️ **Ajuste a la tabla de escalado (sección 6 del GDD):** la tabla original no reservaba un lugar para el Bufón/Independiente — quedó corregida en `roles.js` (ver comentarios ahí).
-- **Ciclo Noche (Fase 1 del GDD):** la pantalla entra en modo "cae la noche" con un checklist en vivo. La Mafia elige víctima con **líder rotativo** (rota entre los mafiosos vivos noche a noche; el resto del equipo ve quién decide y espera), el Vidente investiga en privado a un jugador (el Padrino se ve como inocente, tal como define el GDD), y el Médico protege a alguien. Al amanecer, la pantalla muestra quién murió (y su rol revelado) o si nadie murió. Si matan al Cazador, dispara automáticamente contra otro jugador vivo al azar.
+- **Ciclo Noche (Fase 1 del GDD):** la pantalla entra en modo "cae la noche" con un checklist en vivo y un cronómetro (60s) para que todos decidan. La Mafia elige víctima con **líder rotativo** (rota entre los mafiosos vivos noche a noche; el resto del equipo ve quién decide y espera), el Vidente investiga en privado a un jugador (el Padrino se ve como inocente, tal como define el GDD), y el Médico protege a alguien. Si matan al Cazador, dispara automáticamente contra otro jugador vivo al azar.
+- **Ciclo Día (Fases 2-6 del GDD):** después del amanecer, la pantalla pasa a **Discusión** (los jugadores debaten en persona, con un cronómetro que la pantalla puede cortar antes con un botón), luego **Votación** (cada celular vota en privado a quién acusar, o se abstiene), **Defensa** (el más votado tiene la palabra, también cortable desde la pantalla) y **Juicio** (el resto vota culpable/inocente en privado; el acusado no vota su propio juicio). Si gana "culpable", se ejecuta. Empates en la votación de acusación significan que nadie es juzgado ese día. Después, vuelve a caer la noche.
+- **Nadie revela su rol al morir** (ni de noche ni por ejecución en el Juicio) — se descubre discutiendo, nunca lo anuncia el sistema. Es intencional que hoy no haya forma de cambiar esto desde la pantalla; a futuro debería ser una opción configurable por sala.
+- **Narrativa cinemática al resolver Noche/Día:** en vez de una frase plana, la pantalla cuenta lo que pasó en varios pasos con pausas (niebla, la Mafia acechando, el ataque nombrando a la víctima si hubo muerte, etc.), y recién al final queda fija la pantalla de resultado. La propia pantalla le avisa al servidor (`day:advance`) cuando terminó de reproducirla, así nunca se pisa con la fase siguiente — los timers de respaldo (`NIGHT_RESULT_MS`/`DAY_RESULT_MS`) solo entran si la pantalla nunca avisa.
+- **Ver tu rol en cualquier momento:** cada celular tiene un botón fijo (🎭, esquina superior) que abre tu tarjeta de rol en una ventana superpuesta sin interrumpir lo que estés haciendo — sigue disponible incluso después de que te eliminen.
+- **Condición de victoria (binario Mafia/Ciudad):** después de cada muerte (de noche o por ejecución), el servidor chequea si ya ganó algún bando. Gana la Ciudad si no queda ningún mafioso vivo; gana la Mafia si su cantidad supera **estrictamente** a la de los buenos (los Independientes, como el Bufón, cuentan como "buenos" para este chequeo — su propio objetivo queda pendiente, ver "Qué falta"). Si ambos bandos llegan a cero a la vez (venganza en cadena del Cazador), es un empate sin ganador declarado. Al terminar, la pantalla revela el rol de todos (vivos y muertos) y el juego se frena ahí — no cae otra noche.
 
 ## Qué falta (próximos pasos, en orden)
 
 1. ~~**Asignación de roles**~~ ✅ hecho — ver arriba.
 2. ~~**Ciclo Noche**~~ ✅ hecho — ver arriba.
-3. **Ciclo Día** (Fases 2-6 del GDD): amanecer, discusión, votación, defensa, juicio. (Por ahora la pantalla se queda mostrando el resultado de la noche.)
-4. **Condición de victoria**: chequeo de objetivos de Independientes + binario Mafia/Ciudad (ver sección 6 del GDD).
+3. ~~**Ciclo Día**~~ ✅ hecho — ver arriba.
+4. ~~**Condición de victoria (binario Mafia/Ciudad)**~~ ✅ hecho — ver arriba. Falta el objetivo propio de cada Independiente (ej. el Bufón gana si lo votan y expulsan durante el Día) — hoy el Bufón solo cuenta como "bueno" para el chequeo binario, pero no tiene su propia forma de ganar la partida.
 5. Recién ahí: pulir animaciones/arte con la ambientación de aldea de fantasía (sección 3.1 del GDD).
 
 ## Estructura
@@ -66,7 +81,13 @@ Si ves "🎉 ..." al final de cada uno, está todo bien.
 ```
 la-mafia-lobby/
 ├── server.js          # servidor Node + Socket.IO (toda la lógica de sala)
-├── test-flow.js        # test automático del flujo pantalla+celular
+├── roles.js            # catálogo de roles, escalado y reparto
+├── test-flow.js         # test automático del lobby (pantalla + 1 celular)
+├── test-roles.js        # test automático del reparto de roles (6 jugadores)
+├── test-night.js        # test automático del ciclo Noche (10 jugadores)
+├── test-day.js           # test automático del ciclo Día (10 jugadores)
+├── test-win-ciudad.js     # test automático: victoria de la Ciudad (6 jugadores)
+├── test-win-mafia.js       # test automático: victoria de la Mafia (6 jugadores)
 ├── package.json
 └── public/
     ├── screen.html/js  # pantalla compartida
