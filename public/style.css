@@ -84,6 +84,7 @@ h1 {
 
 .player.offline { color: var(--muted); text-decoration: line-through; }
 .player.online { color: var(--ok); }
+.player-icon { margin-right: 4px; }
 
 /* ---- Celular ---- */
 .join-screen {
@@ -146,6 +147,7 @@ button {
   border: 2px solid transparent;
 }
 .role-card h2 { font-size: 1.6rem; margin: 8px 0; }
+.role-icon { font-size: 2.6rem; margin-top: 8px; }
 .role-team { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
 .role-desc { color: var(--text); }
 .accomplices { margin-top: 12px; color: var(--danger); }
@@ -153,3 +155,148 @@ button {
 .role-card.team-mafia { border-color: var(--danger); background: #2a1a1f; }
 .role-card.team-ciudad { border-color: #5b8dd6; background: #1a2233; }
 .role-card.team-independiente { border-color: var(--accent); background: #2a2419; }
+
+/* ---- Catálogo de roles en juego (pantalla) ---- */
+.roles-catalog {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin: 20px auto 0;
+  max-width: 600px;
+}
+.role-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background: var(--panel);
+  font-size: 0.9rem;
+}
+.role-chip-icon { font-size: 1.3rem; }
+.role-chip.team-mafia { border-color: var(--danger); }
+.role-chip.team-ciudad { border-color: #5b8dd6; }
+.role-chip.team-independiente { border-color: var(--accent); }
+
+/* ---- Ciclo Noche (pantalla): ronda de jugadores ---- */
+.night-circle-wrap {
+  position: relative;
+  width: 300px;
+  height: 300px;
+  margin: 28px auto 8px;
+}
+.night-circle-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.8rem;
+  opacity: 0.7;
+}
+.night-avatar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 64px;
+  transition: filter 0.2s;
+}
+.night-avatar-icon {
+  font-size: 1.8rem;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  border-radius: 50%;
+  border: 2px solid #333c52;
+}
+.night-avatar.done .night-avatar-icon {
+  border-color: var(--ok);
+  box-shadow: 0 0 0 4px rgba(111, 191, 115, 0.2);
+}
+.night-avatar-name {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-align: center;
+}
+.night-avatar.done .night-avatar-name {
+  color: var(--ok);
+}
+
+/* ---- Ciclo Noche (pantalla) ---- */
+.night-progress {
+  list-style: none;
+  padding: 0;
+  margin: 24px auto 0;
+  max-width: 360px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.night-progress li {
+  background: var(--panel);
+  padding: 10px 16px;
+  border-radius: 10px;
+  color: var(--muted);
+}
+.night-progress li.done {
+  color: var(--ok);
+}
+
+.death-list {
+  list-style: none;
+  padding: 0;
+  margin: 24px auto 0;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.death-list li {
+  background: var(--panel);
+  padding: 12px 16px;
+  border-radius: 10px;
+}
+.death-icon { margin-right: 4px; }
+
+.night-timer {
+  margin-top: 18px;
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: var(--accent);
+  text-align: center;
+}
+
+/* ---- Ciclo Noche (celular) ---- */
+.night-panel { text-align: center; }
+.night-panel h2 { margin-top: 0; }
+
+.target-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 16px 0;
+}
+.target-btn {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid #333c52;
+  background: #0f1420;
+  color: var(--text);
+  font-size: 0.95rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.target-btn:hover { border-color: var(--accent); }
+.target-icon { font-size: 1.1rem; }

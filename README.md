@@ -35,6 +35,10 @@ npm run test:flow    # prueba el lobby: pantalla crea sala + 1 celular se une
 npm run test:roles   # prueba con 6 jugadores: arranca la partida y valida que
                       # los roles se repartan bien (incluye chequeo de que los
                       # mafiosos se vean entre sí como cómplices)
+npm run test:night   # prueba con 10 jugadores: simula una noche completa
+                      # (Mafia ataca, Vidente investiga al Padrino y lo ve
+                      # inocente, Médico protege a otro jugador, y el Cazador
+                      # muere y dispara su venganza)
 ```
 
 Si ves "🎉 ..." al final de cada uno, está todo bien.
@@ -47,12 +51,13 @@ Si ves "🎉 ..." al final de cada uno, está todo bien.
 - **Asignación de roles (Fase 0 del GDD):** al tocar "Empezar partida" en la pantalla (habilitado con 6-10 jugadores conectados), el servidor sortea el catálogo MVP (`roles.js`) y le manda a cada celular su rol en privado. Los mafiosos ven en su tarjeta a sus cómplices, tal como quedó definido.
   - ⚠️ **Ajuste al GDD:** se agregó un rol "Aldeano" (sin habilidad) que no estaba en el catálogo original — hacía falta para completar el bando Ciudad en partidas de 7+ jugadores, ya que el MVP solo tiene 3 roles Ciudad con habilidad.
   - ⚠️ **Ajuste a la tabla de escalado (sección 6 del GDD):** la tabla original no reservaba un lugar para el Bufón/Independiente — quedó corregida en `roles.js` (ver comentarios ahí).
+- **Ciclo Noche (Fase 1 del GDD):** la pantalla entra en modo "cae la noche" con un checklist en vivo. La Mafia elige víctima con **líder rotativo** (rota entre los mafiosos vivos noche a noche; el resto del equipo ve quién decide y espera), el Vidente investiga en privado a un jugador (el Padrino se ve como inocente, tal como define el GDD), y el Médico protege a alguien. Al amanecer, la pantalla muestra quién murió (y su rol revelado) o si nadie murió. Si matan al Cazador, dispara automáticamente contra otro jugador vivo al azar.
 
 ## Qué falta (próximos pasos, en orden)
 
 1. ~~**Asignación de roles**~~ ✅ hecho — ver arriba.
-2. **Ciclo Noche** (Fase 1 del GDD): pantalla en modo "cae la noche", acciones privadas por celular (Mafia con líder rotativo, Vidente, Médico).
-3. **Ciclo Día** (Fases 2-6): amanecer, discusión, votación, defensa, juicio.
+2. ~~**Ciclo Noche**~~ ✅ hecho — ver arriba.
+3. **Ciclo Día** (Fases 2-6 del GDD): amanecer, discusión, votación, defensa, juicio. (Por ahora la pantalla se queda mostrando el resultado de la noche.)
 4. **Condición de victoria**: chequeo de objetivos de Independientes + binario Mafia/Ciudad (ver sección 6 del GDD).
 5. Recién ahí: pulir animaciones/arte con la ambientación de aldea de fantasía (sección 3.1 del GDD).
 

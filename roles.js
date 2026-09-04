@@ -11,6 +11,7 @@ const ROLE_INFO = {
   padrino: {
     name: "Padrino",
     narrativeName: "Lobo Alfa",
+    icon: "🐺",
     team: "mafia",
     hasNightAction: true,
     description: "Líder de la mafia. El Detective/Vidente lo ve como inocente si lo investiga.",
@@ -18,6 +19,7 @@ const ROLE_INFO = {
   mafioso: {
     name: "Mafioso",
     narrativeName: "Hombre Lobo",
+    icon: "🐾",
     team: "mafia",
     hasNightAction: true,
     description: "Miembro de la mafia. Participa en la elección nocturna de la víctima.",
@@ -25,6 +27,7 @@ const ROLE_INFO = {
   detective: {
     name: "Detective",
     narrativeName: "Vidente",
+    icon: "🔮",
     team: "ciudad",
     hasNightAction: true,
     description: "De noche, investigás a un jugador para saber si es de la mafia.",
@@ -32,6 +35,7 @@ const ROLE_INFO = {
   medico: {
     name: "Médico",
     narrativeName: "Curandero/a",
+    icon: "💊",
     team: "ciudad",
     hasNightAction: true,
     description: "De noche, elegís a alguien para protegerlo de un ataque.",
@@ -39,6 +43,7 @@ const ROLE_INFO = {
   cazador: {
     name: "Cazador",
     narrativeName: "Cazador",
+    icon: "🏹",
     team: "ciudad",
     hasNightAction: false, // se dispara al morir, no es una acción nocturna proactiva
     description: "Si te matan, disparás automáticamente a otro jugador al azar.",
@@ -46,6 +51,7 @@ const ROLE_INFO = {
   aldeano: {
     name: "Aldeano",
     narrativeName: "Aldeano",
+    icon: "🌾",
     team: "ciudad",
     hasNightAction: false,
     description: "Sin habilidad especial. Tu arma es tu voto y tu palabra durante el Día.",
@@ -53,6 +59,7 @@ const ROLE_INFO = {
   bufon: {
     name: "Bufón",
     narrativeName: "Bufón",
+    icon: "🃏",
     team: "independiente",
     hasNightAction: false,
     description: "Ganás vos solo si el pueblo te vota y te expulsa durante el Día.",
@@ -108,6 +115,16 @@ function assignRoles(playerIds) {
   return assignment;
 }
 
+// Para que todos vean qué roles están en juego esta partida (sin revelar
+// quién tiene cada uno) — se muestra en la pantalla compartida al repartir.
+function getRolesInPlay(playerCount) {
+  const table = SCALING[playerCount];
+  if (!table) return [];
+  return Object.entries(table)
+    .filter(([, count]) => count > 0)
+    .map(([roleId, count]) => ({ roleId, count, ...ROLE_INFO[roleId] }));
+}
+
 // Los mafiosos se conocen entre sí (GDD sección 6, Fase 0).
 function getMafiaAccomplices(assignment, selfSocketId, playerNames) {
   return Object.entries(assignment)
@@ -115,4 +132,11 @@ function getMafiaAccomplices(assignment, selfSocketId, playerNames) {
     .map(([id]) => playerNames[id]);
 }
 
-module.exports = { ROLE_INFO, SCALING, buildRoleDeck, assignRoles, getMafiaAccomplices };
+module.exports = {
+  ROLE_INFO,
+  SCALING,
+  buildRoleDeck,
+  assignRoles,
+  getMafiaAccomplices,
+  getRolesInPlay,
+};
