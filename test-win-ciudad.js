@@ -185,9 +185,12 @@ screen.on("day:resolved", ({ executed, deaths, winner, roster }) => {
   });
 });
 
+// Este test necesita 2 noches completas (una por cada mafioso a ejecutar) y
+// cada una ya no se resuelve antes de tiempo — siempre corre el
+// NIGHT_TIMEOUT_MS completo (60s), más los 22s de ROLE_REVEAL_MS iniciales.
 setTimeout(() => {
   if (!sawWinner) {
     console.error("❌ Timeout: algo no terminó a tiempo.");
     cleanup(1);
   }
-}, 60000);
+}, 180000);

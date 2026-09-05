@@ -15,6 +15,7 @@ const ROLE_INFO = {
     team: "mafia",
     hasNightAction: true,
     description: "Líder de la mafia. El Detective/Vidente lo ve como inocente si lo investiga.",
+    tip: "Padrino: el Detective te ve como inocente si te investiga — usá esa ventaja para no levantar sospechas.",
   },
   mafioso: {
     name: "Mafioso",
@@ -23,6 +24,7 @@ const ROLE_INFO = {
     team: "mafia",
     hasNightAction: true,
     description: "Miembro de la mafia. Participa en la elección nocturna de la víctima.",
+    tip: "Mafioso: tu sugerencia en la reunión nocturna no es definitiva — el líder de turno decide la víctima final.",
   },
   detective: {
     name: "Detective",
@@ -31,6 +33,7 @@ const ROLE_INFO = {
     team: "ciudad",
     hasNightAction: true,
     description: "De noche, investigás a un jugador para saber si es de la mafia.",
+    tip: "Detective: guardate el resultado de tus investigaciones para el momento justo — revelarlo muy pronto te convierte en el próximo blanco de la Mafia.",
   },
   medico: {
     name: "Médico",
@@ -39,6 +42,7 @@ const ROLE_INFO = {
     team: "ciudad",
     hasNightAction: true,
     description: "De noche, elegís a alguien para protegerlo de un ataque.",
+    tip: "Médico: no protejas siempre al mismo jugador — si la Mafia te descubre el patrón, dejás de salvar a nadie.",
   },
   cazador: {
     name: "Cazador",
@@ -47,6 +51,7 @@ const ROLE_INFO = {
     team: "ciudad",
     hasNightAction: false, // se dispara al morir, no es una acción nocturna proactiva
     description: "Si te matan, disparás automáticamente a otro jugador al azar.",
+    tip: "Cazador: cuidado con eliminar a este sujeto, siempre arrastra a alguien con él.",
   },
   aldeano: {
     name: "Aldeano",
@@ -55,6 +60,7 @@ const ROLE_INFO = {
     team: "ciudad",
     hasNightAction: false,
     description: "Sin habilidad especial. Tu arma es tu voto y tu palabra durante el Día.",
+    tip: "Aldeano: no tenés poder especial, pero tu palabra y tu voto durante el Día valen tanto como cualquier otro.",
   },
   bufon: {
     name: "Bufón",
@@ -63,6 +69,7 @@ const ROLE_INFO = {
     team: "independiente",
     hasNightAction: false,
     description: "Ganás vos solo si el pueblo te vota y te expulsa durante el Día.",
+    tip: "Bufón: no jugás para la Mafia ni para la Ciudad — tu única forma de ganar es lograr que el pueblo te vote y te expulse.",
   },
 };
 

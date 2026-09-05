@@ -194,9 +194,13 @@ screen.on("day:resolved", ({ executed, guiltyCount, innocentCount, deaths }) => 
   });
 });
 
+// La noche 1 ya no se resuelve antes de tiempo (siempre corre el
+// NIGHT_TIMEOUT_MS completo de 60s), más los 22s de ROLE_REVEAL_MS antes de
+// que arranque — el resto del ciclo Día se corta al instante con
+// day:advance, así que no suma tiempo real relevante.
 setTimeout(() => {
   if (!sawSecondNight) {
     console.error("❌ Timeout: algo no terminó a tiempo.");
     cleanup(1);
   }
-}, 30000);
+}, 100000);

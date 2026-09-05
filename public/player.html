@@ -40,6 +40,17 @@
     </div>
   </div>
 
+  <!-- El de reglas no es secreto (a diferencia del rol), así que arranca
+       visible desde el lobby, no oculto hasta game:start. -->
+  <button id="rulesFab" class="role-fab rules-fab-pos">📖</button>
+  <div id="rulesModal" class="role-modal hidden">
+    <div class="role-modal-panel">
+      <button id="rulesModalClose" class="role-modal-close">✕</button>
+      <div id="rulesModalContent"></div>
+    </div>
+  </div>
+
+  <script src="/rules-data.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="player.js"></script>
 </body>

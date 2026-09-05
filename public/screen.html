@@ -25,6 +25,27 @@
     </section>
   </main>
 
+  <!-- Fuera de .lobby-screen a propósito: renderScreen() la reemplaza
+       entera en cada cambio de fase, y estos controles del host tienen
+       que sobrevivir a eso. -->
+  <button id="rulesFab" class="role-fab">📖</button>
+  <div id="rulesModal" class="role-modal hidden">
+    <div class="role-modal-panel">
+      <button id="rulesModalClose" class="role-modal-close">✕</button>
+      <div id="rulesModalContent"></div>
+    </div>
+  </div>
+
+  <button id="hostFab" class="role-fab host-fab-pos">👥</button>
+  <div id="hostModal" class="role-modal hidden">
+    <div class="role-modal-panel">
+      <button id="hostModalClose" class="role-modal-close">✕</button>
+      <h2>Jugadores</h2>
+      <ul id="hostModalContent" class="host-roster"></ul>
+    </div>
+  </div>
+
+  <script src="/rules-data.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="screen.js"></script>
 </body>

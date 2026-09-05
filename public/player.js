@@ -25,44 +25,48 @@ form.addEventListener("submit", (e) => {
     document.getElementById("myName").textContent = `${res.icon} ${res.name}`;
     document.getElementById("waitingRoom").classList.remove("hidden");
 
-    // Guardamos la sesión para el futuro "rejoin" si se corta la conexión
+    // Guardamos la sesión para el futuro "rejoin" si se corta la conexión.
+    // El token es lo que nos identifica de verdad (los nombres pueden
+    // repetirse) — nunca se manda por su cuenta, solo para reconectar.
     sessionStorage.setItem("lamafia:code", res.code);
     sessionStorage.setItem("lamafia:name", res.name);
     sessionStorage.setItem("lamafia:icon", res.icon);
+    sessionStorage.setItem("lamafia:token", res.token);
   });
 });
 
+function clearSession() {
+  ["code", "name", "icon", "token"].forEach((k) => sessionStorage.removeItem(`lamafia:${k}`));
+}
+
 // Si el navegador reconecta el socket (ej. wifi que titiló), intenta
-// reincorporarse a la misma sala en vez de arrancar de cero.
+// reincorporarse a la misma sala en vez de arrancar de cero. Se corta si ya
+// nos expulsaron (wasKicked) para no reintentar entrar solos.
+let wasKicked = false;
 socket.on("connect", () => {
+  if (wasKicked) return;
   const savedCode = sessionStorage.getItem("lamafia:code");
-  const savedName = sessionStorage.getItem("lamafia:name");
-  if (savedCode && savedName && form.classList.contains("hidden")) {
-    socket.emit("player:rejoin", { code: savedCode, name: savedName });
-  }
+  const savedToken = sessionStorage.getItem("lamafia:token");
+  if (!savedCode || !savedToken || !form.classList.contains("hidden")) return;
+
+  socket.emit("player:rejoin", { code: savedCode, token: savedToken }, (res) => {
+    if (!res.ok) {
+      clearSession();
+      form.classList.remove("hidden");
+      document.getElementById("waitingRoom").classList.add("hidden");
+      errorMsg.textContent = res.error;
+      return;
+    }
+    form.classList.add("hidden");
+    document.getElementById("myName").textContent = `${res.icon} ${res.name}`;
+    document.getElementById("waitingRoom").classList.remove("hidden");
+  });
 });
 
 function teamLabel(team) {
   if (team === "mafia") return "🐺 Los Lobos";
   if (team === "ciudad") return "🏘️ La Aldea";
   return "🎭 Errante";
-}
-
-// Cronómetro genérico (cuenta para leer el rol, y tiempo límite de las
-// acciones nocturnas). Solo corre un intervalo a la vez: cada llamada corta
-// el anterior para no dejar timers colgados al cambiar de pantalla.
-let activeCountdownTimer = null;
-function startCountdown(el, ms, render) {
-  clearInterval(activeCountdownTimer);
-  if (!el || !ms) return;
-  let secondsLeft = Math.ceil(ms / 1000);
-  const tick = () => {
-    render(el, Math.max(secondsLeft, 0));
-    secondsLeft--;
-    if (secondsLeft < 0) clearInterval(activeCountdownTimer);
-  };
-  tick();
-  activeCountdownTimer = setInterval(tick, 1000);
 }
 
 function buildRoleCardHtml(role) {
@@ -102,6 +106,49 @@ roleModal.addEventListener("click", (e) => {
   if (e.target === roleModal) roleModal.classList.add("hidden");
 });
 
+// --- Tutorial de reglas y roles: disponible desde el lobby (no es secreto,
+//     a diferencia del rol propio), y se abre solo una vez automáticamente
+//     al arrancar la partida. ---
+const rulesFab = document.getElementById("rulesFab");
+const rulesModal = document.getElementById("rulesModal");
+const rulesModalContent = document.getElementById("rulesModalContent");
+
+function buildRulesModalHtml() {
+  const data = window.LAMAFIA_RULES || { allRoles: [], generalRules: [] };
+  const rolesHtml = data.allRoles
+    .map(
+      (r) => `
+        <div class="role-chip team-${r.team}">
+          <span class="role-chip-icon">${r.icon}</span>
+          <span class="role-chip-name">${r.name}</span>
+          <p class="role-chip-tip">${r.tip}</p>
+        </div>
+      `
+    )
+    .join("");
+  const rulesHtml_ = data.generalRules
+    .map((s) => `<div class="rules-section"><h3>${s.icon} ${s.title}</h3><p>${s.text}</p></div>`)
+    .join("");
+  return `
+    <h2>📖 Cómo se juega</h2>
+    <div class="rules-summary">${rulesHtml_}</div>
+    <h2>🎭 Catálogo de roles</h2>
+    <div class="roles-catalog">${rolesHtml}</div>
+  `;
+}
+function openRulesModal() {
+  rulesModalContent.innerHTML = buildRulesModalHtml();
+  rulesModal.classList.remove("hidden");
+}
+rulesFab.addEventListener("click", openRulesModal);
+document.getElementById("rulesModalClose").addEventListener("click", () => {
+  rulesModal.classList.add("hidden");
+});
+rulesModal.addEventListener("click", (e) => {
+  if (e.target === rulesModal) rulesModal.classList.add("hidden");
+});
+
+let autoRulesTimer = null;
 socket.on("role:assigned", (role) => {
   myRole = role;
   roleFab.classList.remove("hidden");
@@ -110,12 +157,49 @@ socket.on("role:assigned", (role) => {
   waitingRoom.classList.remove("hidden");
   waitingRoom.innerHTML = `
     ${buildRoleCardHtml(role)}
-    <p class="hint" id="revealCountdown">Memorizá tu rol antes de que caiga la noche...</p>
+    <p class="hint">Memorizá tu rol antes de que caiga la noche...</p>
   `;
 
-  startCountdown(document.getElementById("revealCountdown"), role.revealMs, (el, s) => {
-    el.textContent = `Memorizá tu rol... la noche cae en ${s}s`;
-  });
+  // Deja ver la tarjeta de rol primero; el tutorial se abre encima poco
+  // después, así no compite con esa lectura.
+  clearTimeout(autoRulesTimer);
+  autoRulesTimer = setTimeout(openRulesModal, 1200);
+});
+
+socket.on("player:rejoinWaiting", ({ message }) => {
+  document.getElementById("waitingRoom").innerHTML = `
+    <div class="night-panel">
+      <h2>⏳ Un momento</h2>
+      <p class="hint">${message}</p>
+    </div>
+  `;
+});
+
+socket.on("player:kicked", ({ reason }) => {
+  wasKicked = true;
+  clearSession();
+  roleFab.classList.add("hidden");
+  rulesFab.classList.add("hidden");
+  document.querySelector("main.join-screen").innerHTML = `
+    <h1>🚫 Fuera de la partida</h1>
+    <p class="hint">${reason}</p>
+  `;
+});
+
+socket.on("player:removed", ({ removedIds }) => {
+  if (!removedIds.includes(socket.id) || wasKicked) return;
+  // Víctima de la venganza del Cazador tras el kick de otro jugador — no es
+  // el propio expulsado (ese caso ya lo maneja player:kicked).
+  document.getElementById("waitingRoom").innerHTML = `
+    <div class="night-panel">
+      <h2>💀 Fuiste eliminado</h2>
+      <p class="hint">Mirá la pantalla para ver qué pasó.</p>
+    </div>
+  `;
+});
+
+socket.on("game:over", ({ winner }) => {
+  document.getElementById("waitingRoom").innerHTML = gameOverPanelHtml(winner);
 });
 
 function renderTargetButtons(container, targets, onPick, selectedId = null) {
@@ -169,27 +253,16 @@ function gameOverPanelHtml(winner) {
   `;
 }
 
-function renderTimerHtml(timeoutMs) {
-  return timeoutMs ? `<p class="hint" id="nightTimer"></p>` : "";
-}
-function startNightTimer(timeoutMs) {
-  startCountdown(document.getElementById("nightTimer"), timeoutMs, (el, s) => {
-    el.textContent = `⏳ ${s}s`;
-  });
-}
-
-socket.on("night:waiting", ({ timeoutMs }) => {
+socket.on("night:waiting", () => {
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
       <h2>🌙 Cae la noche</h2>
       <p class="hint">No tenés nada para hacer esta noche. Esperá tranquilo/a...</p>
-      ${renderTimerHtml(timeoutMs)}
     </div>
   `;
-  startNightTimer(timeoutMs);
 });
 
-socket.on("night:mafiaTurn", ({ isLeader, leaderName, targets, timeoutMs }) => {
+socket.on("night:mafiaTurn", ({ isLeader, leaderName, targets }) => {
   const waitingRoom = document.getElementById("waitingRoom");
 
   if (!isLeader) {
@@ -199,10 +272,8 @@ socket.on("night:mafiaTurn", ({ isLeader, leaderName, targets, timeoutMs }) => {
         <p class="hint">Esta noche decide <strong>${leaderName}</strong>. Marcá a quién matarías vos — el resto de la Mafia lo ve, pero no es definitivo.</p>
         <div id="targetButtons" class="target-list"></div>
         ${mafiaSuggestionsPanelHtml()}
-        ${renderTimerHtml(timeoutMs)}
       </div>
     `;
-    startNightTimer(timeoutMs);
 
     const container = document.getElementById("targetButtons");
     let mySuggestedId = null;
@@ -222,17 +293,14 @@ socket.on("night:mafiaTurn", ({ isLeader, leaderName, targets, timeoutMs }) => {
       ${mafiaSuggestionsPanelHtml()}
       <div id="targetButtons" class="target-list"></div>
       <p id="nightError" class="error"></p>
-      ${renderTimerHtml(timeoutMs)}
     </div>
   `;
-  startNightTimer(timeoutMs);
   renderTargetButtons(document.getElementById("targetButtons"), targets, (targetId) => {
     socket.emit("night:action", { role: "mafia", targetId }, (res) => {
       if (!res.ok) {
         document.getElementById("nightError").textContent = res.error;
         return;
       }
-      clearInterval(activeCountdownTimer);
       waitingRoom.innerHTML = `
         <div class="night-panel">
           <h2>🐺 Listo</h2>
@@ -243,7 +311,7 @@ socket.on("night:mafiaTurn", ({ isLeader, leaderName, targets, timeoutMs }) => {
   });
 });
 
-socket.on("night:yourTurn", ({ role, targets, timeoutMs }) => {
+socket.on("night:yourTurn", ({ role, targets }) => {
   const waitingRoom = document.getElementById("waitingRoom");
   const config = {
     detective: { icon: "🔮", title: "Investigá a alguien" },
@@ -255,10 +323,8 @@ socket.on("night:yourTurn", ({ role, targets, timeoutMs }) => {
       <h2>${config.icon} ${config.title}</h2>
       <div id="targetButtons" class="target-list"></div>
       <p id="nightError" class="error"></p>
-      ${renderTimerHtml(timeoutMs)}
     </div>
   `;
-  startNightTimer(timeoutMs);
   renderTargetButtons(document.getElementById("targetButtons"), targets, (targetId) => {
     socket.emit("night:action", { role, targetId }, (res) => {
       if (!res.ok) {
@@ -266,7 +332,6 @@ socket.on("night:yourTurn", ({ role, targets, timeoutMs }) => {
         return;
       }
       if (role === "medico") {
-        clearInterval(activeCountdownTimer);
         waitingRoom.innerHTML = `
           <div class="night-panel">
             <h2>💊 Listo</h2>
@@ -280,7 +345,6 @@ socket.on("night:yourTurn", ({ role, targets, timeoutMs }) => {
 });
 
 socket.on("night:investigateResult", ({ targetName, isMafia }) => {
-  clearInterval(activeCountdownTimer);
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
       <h2>🔮 Resultado</h2>
@@ -293,7 +357,6 @@ socket.on("night:investigateResult", ({ targetName, isMafia }) => {
 });
 
 socket.on("night:resolved", ({ deaths, winner }) => {
-  clearInterval(activeCountdownTimer);
   if (winner) {
     document.getElementById("waitingRoom").innerHTML = gameOverPanelHtml(winner);
     return;
@@ -316,18 +379,16 @@ socket.on("night:resolved", ({ deaths, winner }) => {
 
 // --- Ciclo Día ---
 
-socket.on("day:discussionPhone", ({ timeoutMs }) => {
+socket.on("day:discussionPhone", () => {
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
       <h2>💬 Es de día</h2>
       <p class="hint">Discutan en persona quién puede ser sospechoso. Mirá la pantalla.</p>
-      ${renderTimerHtml(timeoutMs)}
     </div>
   `;
-  startNightTimer(timeoutMs);
 });
 
-socket.on("day:yourVote", ({ targets, timeoutMs }) => {
+socket.on("day:yourVote", ({ targets }) => {
   const waitingRoom = document.getElementById("waitingRoom");
   waitingRoom.innerHTML = `
     <div class="night-panel">
@@ -335,10 +396,8 @@ socket.on("day:yourVote", ({ targets, timeoutMs }) => {
       <div id="targetButtons" class="target-list"></div>
       <button id="abstainBtn" class="abstain-btn">Abstenerme</button>
       <p id="nightError" class="error"></p>
-      ${renderTimerHtml(timeoutMs)}
     </div>
   `;
-  startNightTimer(timeoutMs);
 
   const submitVote = (targetId) => {
     socket.emit("day:vote", { targetId }, (res) => {
@@ -346,7 +405,6 @@ socket.on("day:yourVote", ({ targets, timeoutMs }) => {
         document.getElementById("nightError").textContent = res.error;
         return;
       }
-      clearInterval(activeCountdownTimer);
       waitingRoom.innerHTML = `
         <div class="night-panel">
           <h2>🗳️ Listo</h2>
@@ -360,29 +418,25 @@ socket.on("day:yourVote", ({ targets, timeoutMs }) => {
   document.getElementById("abstainBtn").addEventListener("click", () => submitVote(null));
 });
 
-socket.on("day:yourDefense", ({ timeoutMs }) => {
+socket.on("day:yourDefense", () => {
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
       <h2>⚖️ ¡Te acusaron!</h2>
       <p class="hint">Es tu turno de defenderte en voz alta.</p>
-      ${renderTimerHtml(timeoutMs)}
     </div>
   `;
-  startNightTimer(timeoutMs);
 });
 
-socket.on("day:watchDefense", ({ accusedName, timeoutMs }) => {
+socket.on("day:watchDefense", ({ accusedName }) => {
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
       <h2>⚖️ Defensa</h2>
       <p class="hint">Escuchá la defensa de <strong>${accusedName}</strong>.</p>
-      ${renderTimerHtml(timeoutMs)}
     </div>
   `;
-  startNightTimer(timeoutMs);
 });
 
-socket.on("day:yourVerdict", ({ timeoutMs }) => {
+socket.on("day:yourVerdict", () => {
   const waitingRoom = document.getElementById("waitingRoom");
   waitingRoom.innerHTML = `
     <div class="night-panel">
@@ -392,10 +446,8 @@ socket.on("day:yourVerdict", ({ timeoutMs }) => {
         <button id="innocentBtn" class="verdict-btn innocent-btn">Inocente</button>
       </div>
       <p id="nightError" class="error"></p>
-      ${renderTimerHtml(timeoutMs)}
     </div>
   `;
-  startNightTimer(timeoutMs);
 
   const submitVerdict = (verdict) => {
     socket.emit("day:verdict", { verdict }, (res) => {
@@ -403,7 +455,6 @@ socket.on("day:yourVerdict", ({ timeoutMs }) => {
         document.getElementById("nightError").textContent = res.error;
         return;
       }
-      clearInterval(activeCountdownTimer);
       waitingRoom.innerHTML = `
         <div class="night-panel">
           <h2>⚖️ Listo</h2>
@@ -417,19 +468,16 @@ socket.on("day:yourVerdict", ({ timeoutMs }) => {
   document.getElementById("innocentBtn").addEventListener("click", () => submitVerdict("innocent"));
 });
 
-socket.on("day:waitVerdict", ({ timeoutMs }) => {
+socket.on("day:waitVerdict", () => {
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
       <h2>⚖️ Están decidiendo</h2>
       <p class="hint">El resto está votando tu veredicto...</p>
-      ${renderTimerHtml(timeoutMs)}
     </div>
   `;
-  startNightTimer(timeoutMs);
 });
 
 socket.on("day:noAccusation", () => {
-  clearInterval(activeCountdownTimer);
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
       <h2>🤝 Nadie fue acusado</h2>
@@ -439,7 +487,6 @@ socket.on("day:noAccusation", () => {
 });
 
 socket.on("day:resolved", ({ executed, deaths, winner }) => {
-  clearInterval(activeCountdownTimer);
   if (winner) {
     document.getElementById("waitingRoom").innerHTML = gameOverPanelHtml(winner);
     return;

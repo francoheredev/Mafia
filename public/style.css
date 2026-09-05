@@ -184,7 +184,9 @@ button {
 }
 .role-modal-panel {
   width: 100%;
-  max-width: 360px;
+  max-width: 420px;
+  max-height: 85vh;
+  overflow-y: auto;
   position: relative;
 }
 .role-modal-close {
@@ -209,6 +211,18 @@ button {
   display: none;
 }
 
+/* ---- Botones fijos extra: reglas (celular y pantalla) y jugadores (host) ----
+   Reusan .role-fab/.role-modal — solo cambia la posición para no superponerse. */
+.rules-fab-pos {
+  top: 80px; /* apilado debajo de roleFab (celular); en la pantalla no hay
+                roleFab, así que le queda la esquina libre igual */
+}
+.host-fab-pos {
+  top: auto;
+  bottom: 16px;
+  right: 16px;
+}
+
 /* ---- Catálogo de roles en juego (pantalla) ---- */
 .roles-catalog {
   display: flex;
@@ -220,18 +234,81 @@ button {
 }
 .role-chip {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   padding: 10px 16px;
-  border-radius: 999px;
+  border-radius: 16px;
   border: 2px solid transparent;
   background: var(--panel);
   font-size: 0.9rem;
+  max-width: 220px;
+  text-align: center;
 }
 .role-chip-icon { font-size: 1.3rem; }
+.role-chip-tip {
+  margin: 2px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
 .role-chip.team-mafia { border-color: var(--danger); }
 .role-chip.team-ciudad { border-color: #5b8dd6; }
 .role-chip.team-independiente { border-color: var(--accent); }
+
+/* ---- Reglas generales (tutorial, celular y pantalla) ---- */
+.rules-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 20px auto 0;
+  max-width: 460px;
+  text-align: left;
+}
+.rules-section {
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 10px 16px;
+}
+.rules-section h3 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+}
+.rules-section p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* ---- Panel de jugadores del host (expulsar) ---- */
+.host-roster {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.host-roster li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #262f45;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+.host-roster .kick-btn {
+  width: auto;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  background: var(--danger);
+  color: #1a1a1a;
+}
+.host-roster .kick-btn:disabled {
+  background: #3a4256;
+  color: var(--muted);
+  cursor: not-allowed;
+}
 
 /* ---- Ciclo Noche (pantalla): ronda de jugadores ---- */
 .night-circle-wrap {
@@ -299,9 +376,6 @@ button {
   padding: 10px 16px;
   border-radius: 10px;
   color: var(--muted);
-}
-.night-progress li.done {
-  color: var(--ok);
 }
 
 .death-list {

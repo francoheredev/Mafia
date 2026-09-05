@@ -7,8 +7,10 @@
 
 const express = require("express");
 const http = require("http");
+const { randomUUID } = require("crypto");
 const { Server } = require("socket.io");
-const { assignRoles, getMafiaAccomplices, getRolesInPlay } = require("./roles");
+const { assignRoles, getMafiaAccomplices, getRolesInPlay, ROLE_INFO } = require("./roles");
+const { GENERAL_RULES } = require("./rules");
 
 const app = express();
 const server = http.createServer(app);
@@ -16,18 +18,33 @@ const io = new Server(server);
 
 app.use(express.static("public"));
 
+// Catálogo completo de roles (no solo los de esta partida) + reglas
+// generales, servido como JS estático para que tanto el celular como la
+// pantalla lo tengan disponible desde que cargan la página, sin necesidad
+// de un evento de socket dedicado ni de duplicar estos datos en el cliente.
+app.get("/rules-data.js", (req, res) => {
+  res.type("application/javascript").send(
+    `window.LAMAFIA_RULES = ${JSON.stringify({
+      allRoles: Object.entries(ROLE_INFO).map(([roleId, r]) => ({ roleId, ...r })),
+      generalRules: GENERAL_RULES,
+    })};`
+  );
+});
+
 // --- Estado en memoria (alcanza para el esqueleto; en un server real
 //     esto podría vivir en Redis si hay más de un proceso) ---
 // rooms[code] = { screenSocketId, players: { socketId: { name, connected } } }
 const rooms = {};
 
-// Si nadie manda su acción nocturna a tiempo (AFK, wifi caído), la noche
-// se resuelve igual con lo que sí llegó a tiempo.
+// La noche SIEMPRE dura hasta que este timer llega a 0 — a propósito no se
+// corta antes aunque todos ya hayan mandado su acción, porque eso le dejaba
+// casi sin tiempo al Vidente para leer el resultado de su investigación
+// antes de que la pantalla pasara al amanecer.
 const NIGHT_TIMEOUT_MS = 60000;
 
-// Tiempo para que todos lean su rol (celular) y el catálogo de roles en
-// juego (pantalla) antes de que arranque la primera noche.
-const ROLE_REVEAL_MS = 10000;
+// Tiempo para que todos lean su rol + el tutorial de reglas y roles (celular
+// y pantalla) antes de que arranque la primera noche.
+const ROLE_REVEAL_MS = 22000;
 
 // Ciclo Día (Fases 2-6 del GDD): amanecer -> discusión -> votación ->
 // defensa -> juicio -> vuelve a caer la noche.
@@ -80,17 +97,24 @@ function getAliveIds(room) {
   return Object.keys(room.players).filter((id) => room.players[id].alive);
 }
 
-function hasAliveRole(room, roleId) {
-  return Object.entries(room.players).some(
-    ([id, p]) => p.alive && room.assignment[id]?.roleId === roleId
-  );
+// A diferencia de getAliveIds, además exige estar conectado — se usa
+// puntualmente para no bloquear el avance de una fase esperando a alguien
+// que se desconectó (ver maybeResolveVoting/maybeResolveTrial). El resto
+// del juego (listas de objetivos, condición de victoria, rotación de líder,
+// venganza del Cazador) debe seguir usando getAliveIds sin filtrar por
+// conexión, para que alguien que reconecta a tiempo pueda seguir jugando.
+function getActiveIds(room) {
+  return Object.keys(room.players).filter((id) => room.players[id].alive && room.players[id].connected);
 }
 
-function findAliveIdByRole(room, roleId) {
-  const entry = Object.entries(room.players).find(
-    ([id, p]) => p.alive && room.assignment[id]?.roleId === roleId
-  );
-  return entry?.[0] || null;
+function playerBrief(room, id) {
+  return { id, name: room.players[id].name, icon: room.players[id].icon };
+}
+
+function aliveTargets(room, excludeIds = []) {
+  return getAliveIds(room)
+    .filter((id) => !excludeIds.includes(id))
+    .map((id) => playerBrief(room, id));
 }
 
 // La Mafia rota quién de ellos decide la víctima cada noche.
@@ -99,26 +123,6 @@ function pickLeader(room) {
   if (order.length === 0) return null;
   const idx = (room.night.number - 1) % order.length;
   return order[idx];
-}
-
-function broadcastNightProgress(io, room, roomCode) {
-  const actedIds = [];
-  if (room.night.mafiaSubmitted && room.night.leaderId) actedIds.push(room.night.leaderId);
-  if (room.night.detectiveSubmitted) {
-    const id = findAliveIdByRole(room, "detective");
-    if (id) actedIds.push(id);
-  }
-  if (room.night.medicoSubmitted) {
-    const id = findAliveIdByRole(room, "medico");
-    if (id) actedIds.push(id);
-  }
-
-  io.to(roomCode).emit("night:progress", {
-    mafiaDone: room.night.mafiaSubmitted || !room.night.leaderId,
-    detectiveDone: room.night.detectiveSubmitted || !hasAliveRole(room, "detective"),
-    medicoDone: room.night.medicoSubmitted || !hasAliveRole(room, "medico"),
-    actedIds,
-  });
 }
 
 // Sugerencias no vinculantes de la Mafia (herramienta para ponerse de
@@ -151,6 +155,29 @@ function broadcastMafiaSuggestions(io, room) {
     .forEach((id) => io.to(id).emit("night:mafiaSuggestions", { suggestions }));
 }
 
+// Reemplaza a un setTimeout simple en las fases que la pantalla muestra con
+// cuenta regresiva: además de disparar `onExpire` en el mismo momento que
+// un setTimeout de `durationMs` habría disparado, manda un tick por segundo
+// con el tiempo restante — solo a la pantalla, que es la única que lo
+// muestra (el celular nunca tiene cronómetro, a propósito). Devuelve un
+// handle de setInterval que se guarda y cancela exactamente igual que los
+// setTimeout de siempre (room.night.timer / room.day.timer / room.revealTimer
+// — en Node, clearTimeout funciona igual sobre un handle de setInterval).
+function startTimer(io, roomCode, room, durationMs, onExpire) {
+  const deadline = Date.now() + durationMs;
+  const tick = () => {
+    const secondsLeft = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    io.to(room.screenSocketId).emit("timer:tick", { secondsLeft });
+    if (secondsLeft <= 0) {
+      clearInterval(handle);
+      onExpire();
+    }
+  };
+  const handle = setInterval(tick, 1000);
+  tick(); // primer tick inmediato, no esperar 1s a que aparezca el número
+  return handle;
+}
+
 function startNight(io, room, roomCode) {
   const number = (room.night?.number || 0) + 1;
   room.phase = "night";
@@ -168,13 +195,9 @@ function startNight(io, room, roomCode) {
   room.night.leaderId = pickLeader(room);
 
   const aliveIds = getAliveIds(room);
-  const targets = aliveIds.map((id) => ({
-    id,
-    name: room.players[id].name,
-    icon: room.players[id].icon,
-  }));
+  const targets = aliveTargets(room);
 
-  io.to(roomCode).emit("night:begin", { number, players: targets, timeoutMs: NIGHT_TIMEOUT_MS });
+  io.to(roomCode).emit("night:begin", { number, players: targets });
 
   aliveIds.forEach((id) => {
     const r = room.assignment[id];
@@ -186,35 +209,20 @@ function startNight(io, room, roomCode) {
         isLeader,
         leaderName: room.players[room.night.leaderId]?.name,
         targets: targets.filter((t) => room.assignment[t.id]?.team !== "mafia"),
-        timeoutMs: NIGHT_TIMEOUT_MS,
       });
     } else if (r.hasNightAction) {
       // Hoy son Detective (Vidente) o Médico — ver ROLE_INFO en roles.js.
-      const roleTargets =
-        r.roleId === "detective" ? targets.filter((t) => t.id !== id) : targets;
-      io.to(id).emit("night:yourTurn", {
-        role: r.roleId,
-        targets: roleTargets,
-        timeoutMs: NIGHT_TIMEOUT_MS,
-      });
+      const roleTargets = r.roleId === "detective" ? aliveTargets(room, [id]) : targets;
+      io.to(id).emit("night:yourTurn", { role: r.roleId, targets: roleTargets });
     } else {
-      io.to(id).emit("night:waiting", { timeoutMs: NIGHT_TIMEOUT_MS });
+      io.to(id).emit("night:waiting", {});
     }
   });
 
-  broadcastNightProgress(io, room, roomCode);
-
   clearTimeout(room.night.timer);
-  room.night.timer = setTimeout(() => resolveNight(io, room, roomCode), NIGHT_TIMEOUT_MS);
-}
-
-function maybeResolveNight(io, room, roomCode) {
-  const mafiaReady = room.night.mafiaSubmitted || !room.night.leaderId;
-  const detectiveReady = room.night.detectiveSubmitted || !hasAliveRole(room, "detective");
-  const medicoReady = room.night.medicoSubmitted || !hasAliveRole(room, "medico");
-  if (mafiaReady && detectiveReady && medicoReady) {
-    resolveNight(io, room, roomCode);
-  }
+  room.night.timer = startTimer(io, roomCode, room, NIGHT_TIMEOUT_MS, () =>
+    resolveNight(io, room, roomCode)
+  );
 }
 
 // Si matan al Cazador, dispara al azar contra otro jugador vivo (GDD: habilidad al morir).
@@ -310,17 +318,15 @@ function startDiscussion(io, room, roomCode) {
   room.day = { number, timer: null, nominations: {}, accusedId: null, verdicts: {} };
 
   const aliveIds = getAliveIds(room);
-  const players = aliveIds.map((id) => ({
-    id,
-    name: room.players[id].name,
-    icon: room.players[id].icon,
-  }));
+  const players = aliveTargets(room);
 
-  io.to(roomCode).emit("day:discussion", { number, players, timeoutMs: DISCUSSION_MS });
-  aliveIds.forEach((id) => io.to(id).emit("day:discussionPhone", { timeoutMs: DISCUSSION_MS }));
+  io.to(roomCode).emit("day:discussion", { number, players });
+  aliveIds.forEach((id) => io.to(id).emit("day:discussionPhone", {}));
 
   clearTimeout(room.day.timer);
-  room.day.timer = setTimeout(() => startVoting(io, room, roomCode), DISCUSSION_MS);
+  room.day.timer = startTimer(io, roomCode, room, DISCUSSION_MS, () =>
+    startVoting(io, room, roomCode)
+  );
 }
 
 function startVoting(io, room, roomCode) {
@@ -330,22 +336,17 @@ function startVoting(io, room, roomCode) {
   room.day.nominations = {};
 
   const aliveIds = getAliveIds(room);
-  const targets = aliveIds.map((id) => ({
-    id,
-    name: room.players[id].name,
-    icon: room.players[id].icon,
-  }));
+  const targets = aliveTargets(room);
 
-  io.to(roomCode).emit("day:voting", { players: targets, timeoutMs: VOTING_MS });
+  io.to(roomCode).emit("day:voting", { players: targets });
   aliveIds.forEach((id) => {
-    io.to(id).emit("day:yourVote", {
-      targets: targets.filter((t) => t.id !== id),
-      timeoutMs: VOTING_MS,
-    });
+    io.to(id).emit("day:yourVote", { targets: targets.filter((t) => t.id !== id) });
   });
 
   clearTimeout(room.day.timer);
-  room.day.timer = setTimeout(() => resolveVoting(io, room, roomCode), VOTING_MS);
+  room.day.timer = startTimer(io, roomCode, room, VOTING_MS, () =>
+    resolveVoting(io, room, roomCode)
+  );
 }
 
 function broadcastVotingProgress(io, room, roomCode) {
@@ -353,8 +354,8 @@ function broadcastVotingProgress(io, room, roomCode) {
 }
 
 function maybeResolveVoting(io, room, roomCode) {
-  const aliveCount = getAliveIds(room).length;
-  if (Object.keys(room.day.nominations).length >= aliveCount) resolveVoting(io, room, roomCode);
+  const activeCount = getActiveIds(room).length;
+  if (Object.keys(room.day.nominations).length >= activeCount) resolveVoting(io, room, roomCode);
 }
 
 function tallyVotes(votesObj) {
@@ -405,21 +406,19 @@ function startDefense(io, room, roomCode, votingResults) {
       icon: room.players[accusedId].icon,
     },
     results: votingResults,
-    timeoutMs: DEFENSE_MS,
   });
 
-  io.to(accusedId).emit("day:yourDefense", { timeoutMs: DEFENSE_MS });
+  io.to(accusedId).emit("day:yourDefense", {});
   getAliveIds(room)
     .filter((id) => id !== accusedId)
     .forEach((id) =>
-      io.to(id).emit("day:watchDefense", {
-        accusedName: room.players[accusedId].name,
-        timeoutMs: DEFENSE_MS,
-      })
+      io.to(id).emit("day:watchDefense", { accusedName: room.players[accusedId].name })
     );
 
   clearTimeout(room.day.timer);
-  room.day.timer = setTimeout(() => startTrial(io, room, roomCode), DEFENSE_MS);
+  room.day.timer = startTimer(io, roomCode, room, DEFENSE_MS, () =>
+    startTrial(io, room, roomCode)
+  );
 }
 
 function startTrial(io, room, roomCode) {
@@ -437,18 +436,19 @@ function startTrial(io, room, roomCode) {
       name: room.players[accusedId].name,
       icon: room.players[accusedId].icon,
     },
-    timeoutMs: TRIAL_MS,
   });
-  voterIds.forEach((id) => io.to(id).emit("day:yourVerdict", { timeoutMs: TRIAL_MS }));
-  io.to(accusedId).emit("day:waitVerdict", { timeoutMs: TRIAL_MS });
+  voterIds.forEach((id) => io.to(id).emit("day:yourVerdict", {}));
+  io.to(accusedId).emit("day:waitVerdict", {});
 
   clearTimeout(room.day.timer);
-  room.day.timer = setTimeout(() => resolveTrial(io, room, roomCode), TRIAL_MS);
+  room.day.timer = startTimer(io, roomCode, room, TRIAL_MS, () =>
+    resolveTrial(io, room, roomCode)
+  );
 }
 
 function maybeResolveTrial(io, room, roomCode) {
-  const voterCount = getAliveIds(room).filter((id) => id !== room.day.accusedId).length;
-  if (Object.keys(room.day.verdicts).length >= voterCount) resolveTrial(io, room, roomCode);
+  const activeVoterCount = getActiveIds(room).filter((id) => id !== room.day.accusedId).length;
+  if (Object.keys(room.day.verdicts).length >= activeVoterCount) resolveTrial(io, room, roomCode);
 }
 
 function resolveTrial(io, room, roomCode) {
@@ -496,11 +496,175 @@ function resolveTrial(io, room, roomCode) {
   room.day.timer = setTimeout(() => startNight(io, room, roomCode), DAY_RESULT_MS);
 }
 
+// Cada jugador se identifica solo por su socket.id, que cambia al
+// reconectar — así que un rejoin exitoso tiene que "mudar" ese id viejo al
+// nuevo en TODAS las estructuras de la sala que puedan referenciarlo, tanto
+// como clave como como valor. Repasar esta lista si se agrega un campo
+// nuevo a room.night/room.day que guarde un id de jugador.
+function remapPlayerId(room, oldId, newId) {
+  room.players[newId] = room.players[oldId];
+  delete room.players[oldId];
+
+  if (room.assignment && room.assignment[oldId]) {
+    room.assignment[newId] = room.assignment[oldId];
+    delete room.assignment[oldId];
+  }
+
+  if (room.mafiaOrder) {
+    room.mafiaOrder = room.mafiaOrder.map((id) => (id === oldId ? newId : id));
+  }
+
+  if (room.night) {
+    if (room.night.leaderId === oldId) room.night.leaderId = newId;
+    if (room.night.mafiaTargetId === oldId) room.night.mafiaTargetId = newId;
+    if (room.night.detectiveTargetId === oldId) room.night.detectiveTargetId = newId;
+    if (room.night.medicoTargetId === oldId) room.night.medicoTargetId = newId;
+    if (room.night.mafiaSuggestions) {
+      const remapped = {};
+      Object.entries(room.night.mafiaSuggestions).forEach(([voterId, targetId]) => {
+        remapped[voterId === oldId ? newId : voterId] = targetId === oldId ? newId : targetId;
+      });
+      room.night.mafiaSuggestions = remapped;
+    }
+  }
+
+  if (room.day) {
+    if (room.day.accusedId === oldId) room.day.accusedId = newId;
+    if (room.day.nominations) {
+      const remapped = {};
+      Object.entries(room.day.nominations).forEach(([voterId, targetId]) => {
+        remapped[voterId === oldId ? newId : voterId] = targetId === oldId ? newId : targetId;
+      });
+      room.day.nominations = remapped;
+    }
+    if (room.day.verdicts && oldId in room.day.verdicts) {
+      room.day.verdicts[newId] = room.day.verdicts[oldId];
+      delete room.day.verdicts[oldId];
+    }
+  }
+}
+
+// Le reenvía a un jugador recién reconectado lo que le correspondería estar
+// viendo ahora mismo, según la fase actual de la sala — así su pantalla deja
+// de estar "congelada" en lo último que vio antes de desconectarse.
+function sendCurrentPhaseState(io, room, roomCode, playerId) {
+  const player = room.players[playerId];
+  if (!player || !room.started || !player.alive) return;
+  const myRole = room.assignment[playerId];
+  if (!myRole) return;
+
+  switch (room.phase) {
+    case "night":
+      if (myRole.team === "mafia") {
+        io.to(playerId).emit("night:mafiaTurn", {
+          isLeader: playerId === room.night.leaderId,
+          leaderName: room.players[room.night.leaderId]?.name,
+          targets: aliveTargets(room).filter((t) => room.assignment[t.id]?.team !== "mafia"),
+        });
+        broadcastMafiaSuggestions(io, room);
+      } else if (myRole.hasNightAction) {
+        const alreadySubmitted =
+          (myRole.roleId === "detective" && room.night.detectiveSubmitted) ||
+          (myRole.roleId === "medico" && room.night.medicoSubmitted);
+        if (alreadySubmitted) {
+          io.to(playerId).emit("player:rejoinWaiting", {
+            message: "Ya hiciste tu elección de esta noche. Esperando al resto...",
+          });
+        } else {
+          io.to(playerId).emit("night:yourTurn", {
+            role: myRole.roleId,
+            targets: myRole.roleId === "detective" ? aliveTargets(room, [playerId]) : aliveTargets(room),
+          });
+        }
+      } else {
+        io.to(playerId).emit("night:waiting", {});
+      }
+      break;
+    case "day-discussion":
+      io.to(playerId).emit("day:discussionPhone", {});
+      break;
+    case "day-voting":
+      if (playerId in room.day.nominations) {
+        io.to(playerId).emit("player:rejoinWaiting", { message: "Ya votaste. Esperando al resto..." });
+      } else {
+        io.to(playerId).emit("day:yourVote", { targets: aliveTargets(room, [playerId]) });
+      }
+      break;
+    case "day-defense":
+      if (playerId === room.day.accusedId) io.to(playerId).emit("day:yourDefense", {});
+      else
+        io.to(playerId).emit("day:watchDefense", {
+          accusedName: room.players[room.day.accusedId]?.name,
+        });
+      break;
+    case "day-trial":
+      if (playerId === room.day.accusedId || playerId in room.day.verdicts) {
+        io.to(playerId).emit("day:waitVerdict", {});
+      } else {
+        io.to(playerId).emit("day:yourVerdict", {});
+      }
+      break;
+    case "dawn":
+    case "day-resolved":
+      io.to(playerId).emit("player:rejoinWaiting", { message: "Mirá la pantalla para ver qué está pasando..." });
+      break;
+    default:
+      break;
+  }
+}
+
+// Expulsar a un jugador desde la pantalla (host). En el lobby es simplemente
+// borrarlo; en partida se lo trata como una muerte silenciosa — sin
+// narrativa ni revelar rol/causa, igual que cualquier otra muerte de este
+// juego — reutilizando killPlayer (que ya encadena la venganza del Cazador
+// si corresponde).
+function kickPlayer(io, room, roomCode, targetId) {
+  const target = room.players[targetId];
+  if (!target) return { ok: false, error: "Ese jugador no existe." };
+  const targetSocket = io.sockets.sockets.get(targetId);
+
+  if (!room.started) {
+    delete room.players[targetId];
+    if (targetSocket) {
+      targetSocket.emit("player:kicked", { reason: "Fuiste expulsado por el anfitrión." });
+      targetSocket.disconnect(true);
+    }
+    io.to(roomCode).emit("lobby:update", { players: publicPlayerList(room) });
+    return { ok: true };
+  }
+
+  target.kicked = true; // para que un rejoin posterior con ese token se rechace
+  const deaths = [];
+  killPlayer(room, targetId, deaths);
+
+  if (targetSocket) {
+    targetSocket.emit("player:kicked", { reason: "Fuiste expulsado por el anfitrión." });
+    targetSocket.disconnect(true);
+  }
+  io.to(roomCode).emit("player:removed", { removedIds: deaths });
+
+  const winner = checkWinner(room);
+  if (winner) {
+    clearTimeout(room.night?.timer);
+    clearTimeout(room.day?.timer);
+    room.phase = "game-over";
+    io.to(roomCode).emit("game:over", { winner, roster: buildFinalRoster(room) });
+    return { ok: true };
+  }
+
+  if (room.phase === "day-voting") maybeResolveVoting(io, room, roomCode);
+  else if (room.phase === "day-trial") maybeResolveTrial(io, room, roomCode);
+  // De noche no se hace nada extra a propósito: la noche solo la corta su
+  // propio timer (ver NIGHT_TIMEOUT_MS), nunca una acción de un jugador.
+
+  return { ok: true };
+}
+
 io.on("connection", (socket) => {
   // --- La pantalla compartida crea una sala nueva ---
   socket.on("screen:create", () => {
     const code = generateRoomCode();
-    rooms[code] = { screenSocketId: socket.id, players: {}, phase: "lobby" };
+    rooms[code] = { screenSocketId: socket.id, players: {}, phase: "lobby", revealTimer: null };
     socket.join(code);
     socket.data.role = "screen";
     socket.data.roomCode = code;
@@ -514,19 +678,37 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: "Esa sala no existe. Revisá el código." });
       return;
     }
+    if (room.started) {
+      // Sin esto, alguien que se une después de repartidos los roles queda
+      // "adentro" pero sin rol asignado — y si termina siendo blanco de una
+      // acción de otro jugador (ej. el Vidente lo investiga), el servidor
+      // se cae al intentar leer un rol que no existe.
+      ack?.({ ok: false, error: "La partida ya empezó — pedile al anfitrión que arranque una nueva." });
+      return;
+    }
     const cleanName = (name || "").trim().slice(0, 20) || "Jugador";
 
+    const nameTaken = Object.values(room.players).some(
+      (p) => p.connected && p.name.toLowerCase() === cleanName.toLowerCase()
+    );
+    if (nameTaken) {
+      ack?.({ ok: false, error: "Ya hay alguien conectado con ese nombre en la sala." });
+      return;
+    }
+
+    const token = randomUUID();
     room.players[socket.id] = {
       name: cleanName,
       connected: true,
       alive: true,
       icon: pickIcon(room),
+      token,
     };
     socket.join(code);
     socket.data.role = "player";
     socket.data.roomCode = code;
 
-    ack?.({ ok: true, code, name: cleanName, icon: room.players[socket.id].icon });
+    ack?.({ ok: true, code, name: cleanName, icon: room.players[socket.id].icon, token });
 
     // Avisa a la pantalla (y a los demás celulares) la lista actualizada
     io.to(code).emit("lobby:update", { players: publicPlayerList(room) });
@@ -580,7 +762,6 @@ io.on("connection", (socket) => {
         team: r.team,
         description: r.description,
         icon: r.icon,
-        revealMs: ROLE_REVEAL_MS,
       };
       if (r.team === "mafia") {
         payload.accomplices = getMafiaAccomplices(assignment, id, playerNames);
@@ -592,10 +773,12 @@ io.on("connection", (socket) => {
     io.to(roomCode).emit("game:started", {
       playerCount: connectedIds.length,
       roles: getRolesInPlay(connectedIds.length),
-      revealMs: ROLE_REVEAL_MS,
     });
 
-    setTimeout(() => startNight(io, room, roomCode), ROLE_REVEAL_MS);
+    clearTimeout(room.revealTimer);
+    room.revealTimer = startTimer(io, roomCode, room, ROLE_REVEAL_MS, () =>
+      startNight(io, room, roomCode)
+    );
   });
 
   // --- Ciclo Noche: Mafia (líder rotativo), Vidente y Médico mandan su acción ---
@@ -645,14 +828,14 @@ io.on("connection", (socket) => {
         ack?.({ ok: false, error: "Ya investigaste esta noche." });
         return;
       }
-      if (!target?.alive || targetId === socket.id) {
+      const targetRole = room.assignment[targetId];
+      if (!target?.alive || !targetRole || targetId === socket.id) {
         ack?.({ ok: false, error: "Objetivo inválido." });
         return;
       }
       room.night.detectiveTargetId = targetId;
       room.night.detectiveSubmitted = true;
 
-      const targetRole = room.assignment[targetId];
       // Ajuste del GDD: el Padrino se ve como inocente si lo investigan.
       const isMafia = targetRole.team === "mafia" && targetRole.roleId !== "padrino";
       io.to(socket.id).emit("night:investigateResult", {
@@ -679,9 +862,11 @@ io.on("connection", (socket) => {
       return;
     }
 
+    // A propósito no hay ningún "ya actuaron todos, resolver ya" acá: la
+    // noche solo termina cuando el timer de startNight llega a 0 (ver
+    // NIGHT_TIMEOUT_MS), para darle tiempo real al Vidente de leer el
+    // resultado de su investigación sin que la pantalla se lo tape enseguida.
     ack?.({ ok: true });
-    broadcastNightProgress(io, room, roomCode);
-    maybeResolveNight(io, room, roomCode);
   });
 
   // --- Sugerencia no vinculante de la Mafia (para ponerse de acuerdo antes
@@ -810,19 +995,94 @@ io.on("connection", (socket) => {
     maybeResolveTrial(io, room, roomCode);
   });
 
-  // --- Reconexión: RESUELTO en el GDD como "rol congelado hasta que vuelve" ---
-  socket.on("player:rejoin", ({ code, name }, ack) => {
+  // --- Reconexión: el jugador "congelado" recupera su mismo estado, sin
+  //     perder rol ni progreso, buscándolo por el token que le dimos al
+  //     unirse (no por nombre — los nombres no son únicos). ---
+  socket.on("player:rejoin", ({ code, token }, ack) => {
     const room = rooms[code];
     if (!room) {
       ack?.({ ok: false, error: "Esa sala ya no existe." });
       return;
     }
-    // TODO (fase de juego): en vez de crear un jugador nuevo, esto debería
-    // reasignar el socket al jugador "congelado" que coincide por nombre/token
-    // de sesión, sin perder su rol ni su estado. Para el esqueleto de lobby
-    // alcanza con reutilizar el mismo flujo que player:join.
-    socket.emit("player:join", { code, name });
-    ack?.({ ok: true });
+    const entry = Object.entries(room.players).find(([, p]) => p.token === token);
+    if (!entry) {
+      ack?.({ ok: false, error: "No encontramos tu sesión en esta sala." });
+      return;
+    }
+    const [oldId, player] = entry;
+    if (player.kicked) {
+      ack?.({ ok: false, error: "Fuiste expulsado de esta sala." });
+      return;
+    }
+
+    // Socket viejo todavía "vivo" (ej. dos pestañas con la misma sesión) —
+    // lo desconectamos para que no quede un jugador fantasma.
+    const oldSocket = io.sockets.sockets.get(oldId);
+    if (oldSocket && oldSocket.id !== socket.id) oldSocket.disconnect(true);
+
+    remapPlayerId(room, oldId, socket.id);
+    room.players[socket.id].connected = true;
+    socket.join(code);
+    socket.data.role = "player";
+    socket.data.roomCode = code;
+
+    ack?.({ ok: true, code, name: room.players[socket.id].name, icon: room.players[socket.id].icon });
+
+    if (!room.started) {
+      io.to(code).emit("lobby:update", { players: publicPlayerList(room) });
+      return;
+    }
+
+    const r = room.assignment[socket.id];
+    if (r) {
+      const playerNames = {};
+      Object.keys(room.assignment).forEach((id) => {
+        playerNames[id] = room.players[id]?.name;
+      });
+      const payload = {
+        roleId: r.roleId,
+        name: r.name,
+        narrativeName: r.narrativeName,
+        team: r.team,
+        description: r.description,
+        icon: r.icon,
+      };
+      if (r.team === "mafia") payload.accomplices = getMafiaAccomplices(room.assignment, socket.id, playerNames);
+      io.to(socket.id).emit("role:assigned", payload);
+    }
+    sendCurrentPhaseState(io, room, code, socket.id);
+    io.to(code).emit("lobby:update", { players: publicPlayerList(room) });
+  });
+
+  // --- La pantalla expulsa a un jugador (lobby o mid-partida) ---
+  socket.on("player:kick", ({ targetId }, ack) => {
+    const { role, roomCode } = socket.data;
+    const room = rooms[roomCode];
+    if (!room || role !== "screen") {
+      ack?.({ ok: false, error: "Solo la pantalla puede expulsar." });
+      return;
+    }
+    ack?.(kickPlayer(io, room, roomCode, targetId));
+  });
+
+  // --- La pantalla pide la lista de jugadores para el panel de expulsión ---
+  socket.on("screen:getRoster", (_data, ack) => {
+    const { role, roomCode } = socket.data;
+    const room = rooms[roomCode];
+    if (!room || role !== "screen") {
+      ack?.({ ok: false, error: "No autorizado." });
+      return;
+    }
+    ack?.({
+      ok: true,
+      players: Object.entries(room.players).map(([id, p]) => ({
+        id,
+        name: p.name,
+        icon: p.icon,
+        connected: p.connected,
+        alive: room.started ? p.alive : undefined,
+      })),
+    });
   });
 
   socket.on("disconnect", () => {

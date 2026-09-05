@@ -157,9 +157,12 @@ function onNightResolved({ number, deaths, saved }) {
   cleanup(allOk ? 0 : 1);
 }
 
-// El servidor espera ROLE_REVEAL_MS (10s) antes de que caiga la noche, para
-// que en el juego real la gente llegue a leer su rol.
+// El servidor espera ROLE_REVEAL_MS (22s) antes de que caiga la noche, y
+// la noche misma ya no se resuelve antes de tiempo aunque todos hayan
+// actuado — siempre corre el NIGHT_TIMEOUT_MS (60s) completo, a propósito,
+// para darle tiempo real al Vidente de leer el resultado de su
+// investigación. El test tiene que esperar esa duración real.
 setTimeout(() => {
   console.error("❌ Timeout: algo no terminó a tiempo.");
   cleanup(1);
-}, 16000);
+}, 95000);

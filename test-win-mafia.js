@@ -185,9 +185,13 @@ screen.on("day:defense", () => {
   fail("No se esperaba una acusación en este test.");
 });
 
+// Este test necesita 3 noches completas para que la Mafia supere en número
+// a los buenos, y cada una ya no se resuelve antes de tiempo — siempre
+// corre el NIGHT_TIMEOUT_MS completo (60s), más los 22s de ROLE_REVEAL_MS
+// iniciales.
 setTimeout(() => {
   if (!sawWinner) {
     console.error("❌ Timeout: algo no terminó a tiempo.");
     cleanup(1);
   }
-}, 60000);
+}, 240000);
