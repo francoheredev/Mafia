@@ -31,12 +31,78 @@ socket.on("lobby:update", ({ players }) => {
 });
 
 document.getElementById("startBtn").addEventListener("click", () => {
+  unlockSound();
   const startError = document.getElementById("startError");
   startError.textContent = "";
   socket.emit("game:start", null, (res) => {
     if (!res.ok) startError.textContent = res.error;
   });
 });
+
+// --- Sonido de disparo (Web Audio, sintetizado — mismo criterio que los
+//     "stingers" de Mafia: sin archivos de audio). Vive solo acá, en la
+//     pantalla compartida, igual que en Mafia. No hay narrador ni música
+//     en Blind Shot, así que no hace falta un botón de mute — si más
+//     adelante se agrega más audio, ese es el momento de sumarlo. ---
+let audioCtx = null;
+function ensureAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+// Los navegadores no dejan sonar nada antes del primer gesto del usuario —
+// se llama en cada click de "Empezar partida", que siempre ocurre antes
+// del primer disparo.
+function unlockSound() {
+  ensureAudioCtx();
+}
+
+// Web Audio no tiene un generador de ruido nativo: se arma un buffer de
+// samples aleatorios una sola vez (dura 0.3s, se reutiliza en cada
+// disparo) para el "crack" del balazo.
+let noiseBuffer = null;
+function getNoiseBuffer(ctx) {
+  if (noiseBuffer) return noiseBuffer;
+  const length = Math.floor(ctx.sampleRate * 0.3);
+  noiseBuffer = ctx.createBuffer(1, length, ctx.sampleRate);
+  const data = noiseBuffer.getChannelData(0);
+  for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+  return noiseBuffer;
+}
+
+// Disparo sintetizado: ráfaga de ruido filtrada en banda (el "crack") +
+// un golpe grave corto que cae de frecuencia rápido (el "cuerpo" del
+// disparo) — mismo tipo de síntesis con osciladores que playStinger en
+// Mafia, solo que acá se suma una fuente de ruido para el componente
+// percusivo/agudo que un balazo necesita y que un oscilador solo no da.
+function playGunshot() {
+  const ctx = ensureAudioCtx();
+  const t = ctx.currentTime;
+
+  const noise = ctx.createBufferSource();
+  noise.buffer = getNoiseBuffer(ctx);
+  const noiseFilter = ctx.createBiquadFilter();
+  noiseFilter.type = "bandpass";
+  noiseFilter.frequency.value = 1800;
+  noiseFilter.Q.value = 0.7;
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.setValueAtTime(0.5, t);
+  noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+  noise.connect(noiseFilter).connect(noiseGain).connect(ctx.destination);
+  noise.start(t);
+  noise.stop(t + 0.16);
+
+  const thump = ctx.createOscillator();
+  thump.type = "sine";
+  thump.frequency.setValueAtTime(140, t);
+  thump.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+  const thumpGain = ctx.createGain();
+  thumpGain.gain.setValueAtTime(0.6, t);
+  thumpGain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+  thump.connect(thumpGain).connect(ctx.destination);
+  thump.start(t);
+  thump.stop(t + 0.15);
+}
 
 // --- Reglas (estáticas, ver player.js — mismo texto) ---
 function buildRulesModalHtml() {
@@ -150,6 +216,7 @@ async function renderLobbyShell(code) {
     height: 220,
   });
   document.getElementById("startBtn").addEventListener("click", () => {
+    unlockSound();
     const startError = document.getElementById("startError");
     startError.textContent = "";
     socket.emit("game:start", null, (res) => {
@@ -265,10 +332,77 @@ let revealArena = null;
 let revealPlayers = {}; // id -> { x, y, icon, name, eliminated }
 let activeShot = null; // { shooterId, fired, angle, hitId, at, to, startTs } | null
 let revealRafHandle = null;
+let revealLastTs = null; // para el dt de las partículas (rAF no lo da solo)
 
 function stopRevealAnimation() {
   if (revealRafHandle) cancelAnimationFrame(revealRafHandle);
   revealRafHandle = null;
+  revealLastTs = null;
+}
+
+// --- Partículas de disparo: dos ráfagas por tiro, un "fogonazo" en la
+//     posición del tirador (cono angosto alrededor de su ángulo de
+//     puntería) y, si pega, un "impacto" en el punto del objetivo (esparcido
+//     en todas direcciones). Sistema simple, sin librería: un array plano
+//     de partículas, integradas a mano cuadro a cuadro. ---
+let particles = [];
+
+function spawnMuzzleParticles(x, y, angle) {
+  const origin = worldToArenaCanvas(x, y);
+  for (let i = 0; i < 10; i++) {
+    const spread = (Math.random() - 0.5) * 0.9; // cono angosto alrededor de la puntería
+    const a = angle - spread;
+    const speed = 120 + Math.random() * 160;
+    particles.push({
+      x: origin.x,
+      y: origin.y,
+      vx: Math.cos(a) * speed,
+      vy: -Math.sin(a) * speed, // flip: mismo criterio que el resto del canvas
+      life: 0.3 + Math.random() * 0.15,
+      maxLife: 0.45,
+      size: 2 + Math.random() * 3,
+      color: Math.random() < 0.5 ? "#ffd27a" : "#ff8a3d",
+    });
+  }
+}
+
+function spawnImpactParticles(x, y) {
+  const origin = worldToArenaCanvas(x, y);
+  for (let i = 0; i < 14; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const speed = 80 + Math.random() * 200;
+    particles.push({
+      x: origin.x,
+      y: origin.y,
+      vx: Math.cos(a) * speed,
+      vy: Math.sin(a) * speed,
+      life: 0.4 + Math.random() * 0.2,
+      maxLife: 0.6,
+      size: 2 + Math.random() * 3,
+      color: "#ff3b3b",
+    });
+  }
+}
+
+function updateAndDrawParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vx *= 0.94; // fricción — se van frenando, no vuelan en línea recta para siempre
+    p.vy *= 0.94;
+    p.life -= dt;
+    if (p.life <= 0) {
+      particles.splice(i, 1);
+      continue;
+    }
+    arenaCtx.globalAlpha = Math.max(p.life / p.maxLife, 0);
+    arenaCtx.fillStyle = p.color;
+    arenaCtx.beginPath();
+    arenaCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    arenaCtx.fill();
+  }
+  arenaCtx.globalAlpha = 1;
 }
 
 // order trae un evento por cada jugador que seguía vivo al EMPEZAR la
@@ -321,6 +455,9 @@ function drawShotLine(shot) {
 }
 
 function drawRevealFrame(now) {
+  const dt = revealLastTs ? Math.min((now - revealLastTs) / 1000, 0.1) : 0;
+  revealLastTs = now;
+
   arenaCtx.clearRect(0, 0, arenaWidth, arenaHeight);
   drawArenaRect(revealArena.halfWidth, revealArena.halfHeight, "#1c2233", 2);
   drawArenaRect(revealZone.halfWidth, revealZone.halfHeight, "#e8c07d", 3);
@@ -334,6 +471,8 @@ function drawRevealFrame(now) {
     flashAlpha = 0.3 + 0.7 * (0.5 - 0.5 * Math.cos(t * Math.PI * 4));
     if (activeShot.fired) drawShotLine(activeShot);
   }
+
+  updateAndDrawParticles(dt);
 
   arenaCtx.font = `${ARENA_MARKER_PX}px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
   arenaCtx.textAlign = "center";
@@ -355,6 +494,7 @@ function playReveal(zoneBefore, order, onDone) {
   revealArena = arenaCache;
   revealPlayers = buildRevealPlayers(order);
   activeShot = null;
+  particles = [];
   stopRevealAnimation();
   revealRafHandle = requestAnimationFrame(drawRevealFrame);
 
@@ -375,6 +515,11 @@ function playReveal(zoneBefore, order, onDone) {
       to: event.to,
       startTs: performance.now(),
     };
+    if (event.fired) {
+      playGunshot();
+      spawnMuzzleParticles(event.at.x, event.at.y, event.angle);
+      if (event.hitId && event.to) spawnImpactParticles(event.to.x, event.to.y);
+    }
     if (event.hitId && revealPlayers[event.hitId]) revealPlayers[event.hitId].eliminated = true;
 
     const shooterName = rosterById[event.shooterId]?.name || "?";
