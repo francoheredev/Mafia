@@ -1,133 +1,8 @@
-:root {
-  --bg: #10141f;
-  --panel: #1b2233;
-  --accent: #e8c07d;
-  --text: #f1ede4;
-  --muted: #8a93a6;
-  --danger: #e07a5f;
-  --ok: #6fbf73;
-}
-
-* { box-sizing: border-box; }
-
-body {
-  margin: 0;
-  min-height: 100vh;
-  background: radial-gradient(circle at top, #1a2036, var(--bg));
-  color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-h1 {
-  text-align: center;
-  font-size: 2rem;
-  margin-bottom: 4px;
-}
-
-.subtitle, .hint {
-  color: var(--muted);
-  text-align: center;
-  font-size: 0.9rem;
-}
-
-/* ---- Pantalla compartida ---- */
-.lobby-screen {
-  width: 100%;
-  max-width: 720px;
-  text-align: center;
-}
-
-.code-panel {
-  background: var(--panel);
-  border-radius: 16px;
-  padding: 24px;
-  margin: 24px 0;
-}
-
-#qrcode {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 12px;
-}
-
-.room-code {
-  font-size: 3rem;
-  letter-spacing: 0.4em;
-  font-weight: bold;
-  color: var(--accent);
-}
-
-.players-panel {
-  background: var(--panel);
-  border-radius: 16px;
-  padding: 16px 24px;
-}
-
-.player-list {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-}
-
-.player-list li {
-  background: #262f45;
-  padding: 8px 14px;
-  border-radius: 999px;
-}
-
-.player.offline { color: var(--muted); text-decoration: line-through; }
-.player.online { color: var(--ok); }
-.player-icon { margin-right: 4px; }
-
-/* ---- Celular ---- */
-.join-screen {
-  width: 100%;
-  max-width: 360px;
-  background: var(--panel);
-  border-radius: 16px;
-  padding: 24px;
-}
-
-form { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
-
-label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-input {
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid #333c52;
-  background: #0f1420;
-  color: var(--text);
-  font-size: 1.1rem;
-  text-align: center;
-}
-
-button {
-  padding: 14px;
-  border-radius: 8px;
-  border: none;
-  background: var(--accent);
-  color: #1a1a1a;
-  font-weight: bold;
-  font-size: 1rem;
-  cursor: pointer;
-}
-
-.error { color: var(--danger); text-align: center; min-height: 1.2em; }
-.hidden { display: none; }
+/* mafia.css — todo lo que es específico de La Mafia: tarjetas y catálogo de
+   roles, ciclo Noche/Día (ronda de avatares, narrativa cinemática, panel de
+   objetivos, votación/veredicto), Amante. La parte genérica (layout base,
+   FAB+modal, chat, historial, roster del lobby, panel del host) vive en
+   /platform/platform.css. */
 
 /* ---- Botón de empezar partida ---- */
 #startBtn {
@@ -156,63 +31,9 @@ button {
 .role-card.team-ciudad { border-color: #5b8dd6; background: #1a2233; }
 .role-card.team-independiente { border-color: var(--accent); background: #2a2419; }
 
-/* ---- Botón fijo "ver mi rol" + modal (celular) ---- */
-.role-fab {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  width: 52px;
-  height: 52px;
-  padding: 0;
-  border-radius: 50%;
-  font-size: 1.4rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  z-index: 50;
-}
-.role-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(10, 13, 20, 0.75);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  z-index: 100;
-}
-.role-modal-panel {
-  width: 100%;
-  max-width: 420px;
-  max-height: 85vh;
-  overflow-y: auto;
-  position: relative;
-}
-.role-modal-close {
-  position: absolute;
-  top: -14px;
-  right: -14px;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border-radius: 50%;
-  background: var(--panel);
-  border: 1px solid #333c52;
-  color: var(--text);
-  font-size: 1rem;
-}
-/* .role-fab y .role-modal fijan su propio "display", así que necesitan
-   más especificidad que ".hidden" sola para poder ocultarse de verdad
-   (si no, gana la regla que esté más abajo en el archivo, sin importar
-   cuál sea "más" oculta). */
-.role-fab.hidden,
-.role-modal.hidden {
-  display: none;
-}
-
-/* ---- Botones fijos extra: reglas (celular y pantalla) y jugadores (host) ----
-   Reusan .role-fab/.role-modal — solo cambia la posición para no superponerse. */
+/* ---- Posiciones de los FAB propios de Mafia (rol/reglas/sonido/chat/host/
+   historial) — el orden en que se apilan es propio de este set de FABs, no
+   algo genérico de la plataforma. ---- */
 .rules-fab-pos {
   top: 80px; /* apilado debajo de roleFab (celular); en la pantalla no hay
                 roleFab, así que le queda la esquina libre igual */
@@ -239,7 +60,7 @@ body.screen .history-fab-pos {
   top: 144px;
 }
 
-/* ---- Catálogo de roles en juego (pantalla) ---- */
+/* ---- Catálogo de roles en juego (pantalla + modal de reglas) ---- */
 .roles-catalog {
   display: flex;
   flex-wrap: wrap;
@@ -270,61 +91,6 @@ body.screen .history-fab-pos {
 .role-chip.team-mafia { border-color: var(--danger); }
 .role-chip.team-ciudad { border-color: #5b8dd6; }
 .role-chip.team-independiente { border-color: var(--accent); }
-
-/* ---- Reglas generales (tutorial, celular y pantalla) ---- */
-.rules-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin: 20px auto 0;
-  max-width: 460px;
-  text-align: left;
-}
-.rules-section {
-  background: var(--panel);
-  border-radius: 12px;
-  padding: 10px 16px;
-}
-.rules-section h3 {
-  margin: 0 0 4px;
-  font-size: 0.95rem;
-}
-.rules-section p {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-/* ---- Panel de jugadores del host (expulsar) ---- */
-.host-roster {
-  list-style: none;
-  padding: 0;
-  margin: 12px 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.host-roster li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  background: #262f45;
-  padding: 8px 12px;
-  border-radius: 10px;
-}
-.host-roster .kick-btn {
-  width: auto;
-  padding: 6px 12px;
-  font-size: 0.8rem;
-  background: var(--danger);
-  color: #1a1a1a;
-}
-.host-roster .kick-btn:disabled {
-  background: #3a4256;
-  color: var(--muted);
-  cursor: not-allowed;
-}
 
 /* ---- Ciclo Noche (pantalla): ronda de jugadores ---- */
 .night-circle-wrap {
@@ -530,65 +296,3 @@ body.screen .history-fab-pos {
 
 /* ---- Info del Amante, en la tarjeta de rol (celular) ---- */
 .lover-info { margin-top: 12px; color: var(--accent); }
-
-/* ---- Chat (celular): pestañas General / Fantasmas ---- */
-.chat-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.chat-tab {
-  flex: 1;
-  width: auto;
-  background: transparent;
-  border: 1px solid #333c52;
-  color: var(--muted);
-  padding: 8px;
-  font-size: 0.9rem;
-}
-.chat-tab.active { border-color: var(--accent); color: var(--text); }
-.chat-tab:disabled { opacity: 0.4; cursor: not-allowed; }
-.chat-log {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 12px;
-  max-height: 45vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.chat-log li {
-  background: var(--panel);
-  padding: 8px 12px;
-  border-radius: 10px;
-  font-size: 0.9rem;
-  text-align: left;
-}
-.chat-icon { margin-right: 4px; }
-.chat-input-row {
-  display: flex;
-  flex-direction: row; /* el selector genérico "form" de más arriba fuerza column */
-  gap: 8px;
-}
-.chat-input-row input { flex: 1; margin: 0; }
-.chat-input-row button { width: auto; padding: 10px 16px; }
-
-/* ---- Historial de acciones (pantalla y celular) ---- */
-.history-list {
-  list-style: none;
-  padding: 0;
-  margin: 16px 0 0;
-  max-height: 60vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.history-list li {
-  background: var(--panel);
-  padding: 10px 14px;
-  border-radius: 10px;
-  text-align: left;
-  font-size: 0.9rem;
-}

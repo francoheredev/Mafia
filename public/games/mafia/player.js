@@ -1,4 +1,5 @@
-const socket = io();
+const GAME_ID = "mafia";
+const socket = Platform.socket;
 
 // Feedback táctil en los momentos de tensión del juego. navigator.vibrate
 // solo existe en Android/Chrome — en iPhone (Safari) el `if` de acá adentro
@@ -17,67 +18,16 @@ const VIBRATE = {
 // de chat de "fantasmas" — se resetea al reiniciar la partida.
 let amIDead = false;
 
-const params = new URLSearchParams(window.location.search);
-const codeFromQr = params.get("code");
-if (codeFromQr) {
-  document.getElementById("codeInput").value = codeFromQr.toUpperCase();
-}
-
-const form = document.getElementById("joinForm");
-const errorMsg = document.getElementById("errorMsg");
-
-form.addEventListener("submit", (e) => {
-  e.preventDefault();
-  errorMsg.textContent = "";
-
-  const code = document.getElementById("codeInput").value.trim().toUpperCase();
-  const name = document.getElementById("nameInput").value.trim();
-
-  socket.emit("player:join", { code, name }, (res) => {
-    if (!res.ok) {
-      errorMsg.textContent = res.error;
-      return;
-    }
-    form.classList.add("hidden");
-    document.getElementById("myName").textContent = `${res.icon} ${res.name}`;
-    document.getElementById("waitingRoom").classList.remove("hidden");
-
-    // Guardamos la sesión para el futuro "rejoin" si se corta la conexión.
-    // El token es lo que nos identifica de verdad (los nombres pueden
-    // repetirse) — nunca se manda por su cuenta, solo para reconectar.
-    sessionStorage.setItem("lamafia:code", res.code);
-    sessionStorage.setItem("lamafia:name", res.name);
-    sessionStorage.setItem("lamafia:icon", res.icon);
-    sessionStorage.setItem("lamafia:token", res.token);
-  });
-});
-
-function clearSession() {
-  ["code", "name", "icon", "token"].forEach((k) => sessionStorage.removeItem(`lamafia:${k}`));
-}
-
-// Si el navegador reconecta el socket (ej. wifi que titiló), intenta
-// reincorporarse a la misma sala en vez de arrancar de cero. Se corta si ya
-// nos expulsaron (wasKicked) para no reintentar entrar solos.
 let wasKicked = false;
-socket.on("connect", () => {
-  if (wasKicked) return;
-  const savedCode = sessionStorage.getItem("lamafia:code");
-  const savedToken = sessionStorage.getItem("lamafia:token");
-  if (!savedCode || !savedToken || !form.classList.contains("hidden")) return;
-
-  socket.emit("player:rejoin", { code: savedCode, token: savedToken }, (res) => {
-    if (!res.ok) {
-      clearSession();
-      form.classList.remove("hidden");
-      document.getElementById("waitingRoom").classList.add("hidden");
-      errorMsg.textContent = res.error;
-      return;
-    }
-    form.classList.add("hidden");
-    document.getElementById("myName").textContent = `${res.icon} ${res.name}`;
-    document.getElementById("waitingRoom").classList.remove("hidden");
-  });
+const connectHandle = Platform.playerConnect.init({
+  socket,
+  gameId: GAME_ID,
+  formId: "joinForm",
+  codeInputId: "codeInput",
+  nameInputId: "nameInput",
+  errorId: "errorMsg",
+  waitingId: "waitingRoom",
+  myNameId: "myName",
 });
 
 function teamLabel(team) {
@@ -113,28 +63,21 @@ let myRole = null;
 let myLoverInfo = null; // { id, name, icon, roleId, roleName, narrativeName, team }
 
 const roleFab = document.getElementById("roleFab");
-const roleModal = document.getElementById("roleModal");
+const rulesFab = document.getElementById("rulesFab");
 const roleModalContent = document.getElementById("roleModalContent");
 
-roleFab.addEventListener("click", () => {
-  if (!myRole) return;
-  roleModalContent.innerHTML = buildRoleCardHtml(myRole);
-  roleModal.classList.remove("hidden");
-});
-document.getElementById("roleModalClose").addEventListener("click", () => {
-  roleModal.classList.add("hidden");
-});
-roleModal.addEventListener("click", (e) => {
-  if (e.target === roleModal) roleModal.classList.add("hidden");
+Platform.wireModal({
+  fabId: "roleFab",
+  modalId: "roleModal",
+  closeId: "roleModalClose",
+  onOpen: () => {
+    if (myRole) roleModalContent.innerHTML = buildRoleCardHtml(myRole);
+  },
 });
 
 // --- Tutorial de reglas y roles: disponible desde el lobby (no es secreto,
 //     a diferencia del rol propio), y se abre solo una vez automáticamente
 //     al arrancar la partida. ---
-const rulesFab = document.getElementById("rulesFab");
-const rulesModal = document.getElementById("rulesModal");
-const rulesModalContent = document.getElementById("rulesModalContent");
-
 function buildRulesModalHtml() {
   const data = window.GAME_RULES || { allRoles: [], generalRules: [] };
   const rolesHtml = data.allRoles
@@ -158,16 +101,12 @@ function buildRulesModalHtml() {
     <div class="roles-catalog">${rolesHtml}</div>
   `;
 }
-function openRulesModal() {
-  rulesModalContent.innerHTML = buildRulesModalHtml();
-  rulesModal.classList.remove("hidden");
-}
-rulesFab.addEventListener("click", openRulesModal);
-document.getElementById("rulesModalClose").addEventListener("click", () => {
-  rulesModal.classList.add("hidden");
-});
-rulesModal.addEventListener("click", (e) => {
-  if (e.target === rulesModal) rulesModal.classList.add("hidden");
+Platform.rules.init({
+  fabId: "rulesFab",
+  modalId: "rulesModal",
+  closeId: "rulesModalClose",
+  contentId: "rulesModalContent",
+  buildHtml: buildRulesModalHtml,
 });
 
 socket.on("role:assigned", (role) => {
@@ -194,6 +133,7 @@ socket.on("role:loverInfo", ({ partner }) => {
 socket.on("mafia:teamUpdate", ({ accomplices }) => {
   if (!myRole) return;
   myRole = { ...myRole, accomplices };
+  const roleModal = document.getElementById("roleModal");
   if (!roleModal.classList.contains("hidden")) {
     roleModalContent.innerHTML = buildRoleCardHtml(myRole);
   }
@@ -224,7 +164,7 @@ socket.on("player:rejoinWaiting", ({ message }) => {
 socket.on("player:kicked", ({ reason }) => {
   vibrate(VIBRATE.death);
   wasKicked = true;
-  clearSession();
+  connectHandle.markKicked();
   roleFab.classList.add("hidden");
   rulesFab.classList.add("hidden");
   document.querySelector("main.join-screen").innerHTML = `
@@ -260,10 +200,11 @@ socket.on("game:restarted", () => {
   myRole = null;
   myLoverInfo = null;
   amIDead = false;
-  activeChatChannel = "general";
+  chatHandle.reset("general");
   roleFab.classList.add("hidden");
-  const name = sessionStorage.getItem("lamafia:name") || "";
-  const icon = sessionStorage.getItem("lamafia:icon") || "";
+  const saved = Platform.session.load(GAME_ID);
+  const name = saved.name || "";
+  const icon = saved.icon || "";
   document.getElementById("waitingRoom").innerHTML = `
     <p>✅ Estás adentro, <strong id="myName">${icon} ${name}</strong>.</p>
     <p class="hint">Esperando a que arranque la próxima partida...</p>
@@ -713,93 +654,20 @@ socket.on("day:resolved", ({ executed, deaths, transformations, winner }) => {
 });
 
 // --- Chat: "general" (todos, en cualquier momento) y "fantasmas" (solo
-//     jugadores ya eliminados, entre ellos) ---
-const chatFab = document.getElementById("chatFab");
-const chatModal = document.getElementById("chatModal");
-const chatLog = document.getElementById("chatLog");
-const chatForm = document.getElementById("chatForm");
-const chatInput = document.getElementById("chatInput");
-const chatTabButtons = document.querySelectorAll(".chat-tab");
-let activeChatChannel = "general";
-let currentChatMessages = [];
-
-function renderChatMessages() {
-  chatLog.innerHTML = currentChatMessages.length
-    ? currentChatMessages
-        .map((m) => `<li><span class="chat-icon">${m.senderIcon}</span><strong>${m.senderName}:</strong> ${m.text}</li>`)
-        .join("")
-    : `<li class="hint">Todavía no hay mensajes.</li>`;
-  chatLog.scrollTop = chatLog.scrollHeight;
-}
-
-function loadChatChannel(channel) {
-  activeChatChannel = channel;
-  chatTabButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.channel === channel));
-  socket.emit("chat:getHistory", { channel }, (res) => {
-    currentChatMessages = res.ok ? res.messages : [];
-    renderChatMessages();
-  });
-}
-
-chatFab.addEventListener("click", () => {
-  const fantasmasTab = document.getElementById("chatTabFantasmas");
-  fantasmasTab.disabled = !amIDead;
-  chatModal.classList.remove("hidden");
-  loadChatChannel(activeChatChannel === "fantasmas" && !amIDead ? "general" : activeChatChannel);
-});
-document.getElementById("chatModalClose").addEventListener("click", () => {
-  chatModal.classList.add("hidden");
-});
-chatModal.addEventListener("click", (e) => {
-  if (e.target === chatModal) chatModal.classList.add("hidden");
-});
-chatTabButtons.forEach((btn) => {
-  btn.addEventListener("click", () => {
-    if (btn.disabled) return;
-    loadChatChannel(btn.dataset.channel);
-  });
-});
-chatForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const text = chatInput.value.trim();
-  if (!text) return;
-  socket.emit("chat:send", { channel: activeChatChannel, text }, (res) => {
-    if (res.ok) chatInput.value = "";
-  });
-});
-socket.on("chat:message", ({ channel, ...msg }) => {
-  if (channel !== activeChatChannel) return;
-  currentChatMessages = [...currentChatMessages, msg];
-  if (!chatModal.classList.contains("hidden")) renderChatMessages();
+//     jugadores ya eliminados, entre ellos) — la pestaña de fantasmas se
+//     habilita/deshabilita según si el jugador ya murió (amIDead). ---
+const chatHandle = Platform.chat.init({
+  socket,
+  fabId: "chatFab",
+  modalId: "chatModal",
+  closeId: "chatModalClose",
+  logId: "chatLog",
+  formId: "chatForm",
+  inputId: "chatInput",
+  tabButtonsSelector: ".chat-tab",
+  isChannelEnabled: (channel) => (channel === "fantasmas" ? amIDead : true),
+  defaultChannel: "general",
 });
 
 // --- Historial público de la partida ---
-const historyFab = document.getElementById("historyFab");
-const historyModal = document.getElementById("historyModal");
-const historyList = document.getElementById("historyList");
-
-function renderHistoryEntries(entries) {
-  historyList.innerHTML = entries.length
-    ? entries.map((e) => `<li>${e.icon} ${e.text}</li>`).join("")
-    : `<li class="hint">Todavía no pasó nada.</li>`;
-  historyList.scrollTop = historyList.scrollHeight;
-}
-
-historyFab.addEventListener("click", () => {
-  socket.emit("history:get", null, (res) => {
-    if (res.ok) renderHistoryEntries(res.entries);
-  });
-  historyModal.classList.remove("hidden");
-});
-document.getElementById("historyModalClose").addEventListener("click", () => {
-  historyModal.classList.add("hidden");
-});
-historyModal.addEventListener("click", (e) => {
-  if (e.target === historyModal) historyModal.classList.add("hidden");
-});
-socket.on("history:entry", (entry) => {
-  if (!historyModal.classList.contains("hidden")) {
-    historyList.insertAdjacentHTML("beforeend", `<li>${entry.icon} ${entry.text}</li>`);
-    historyList.scrollTop = historyList.scrollHeight;
-  }
-});
+Platform.history.init({ socket, fabId: "historyFab", modalId: "historyModal", closeId: "historyModalClose", listId: "historyList" });

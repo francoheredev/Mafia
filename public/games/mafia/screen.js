@@ -1,38 +1,24 @@
-const socket = io();
+const GAME_ID = "mafia";
+const socket = Platform.socket;
 
 // Se guarda para poder reconstruir el lobby (QR incluido) cuando se reinicia
 // la partida en la misma sala, sin tener que crear una sala nueva.
 let currentRoomCode = null;
 
-// La pantalla se suele abrir como "localhost" en la PC, pero el QR lo
-// escanea un celular en la misma red — necesita la IP LAN de la PC, no
-// "localhost" (que en el celular apunta al propio celular).
-const lanIpPromise = fetch("/lan-ip")
-  .then((r) => r.json())
-  .then((d) => d.lanIp)
-  .catch(() => null);
+Platform.screenConnect.init({
+  socket,
+  gameId: GAME_ID,
+  onCreated: async (code) => {
+    currentRoomCode = code;
+    document.getElementById("roomCode").textContent = code;
 
-async function buildJoinUrl(code) {
-  const lanIp = await lanIpPromise;
-  const port = window.location.port ? `:${window.location.port}` : "";
-  const host = lanIp || window.location.hostname;
-  return `${window.location.protocol}//${host}${port}/player.html?code=${code}`;
-}
-
-socket.on("connect", () => {
-  socket.emit("screen:create");
-});
-
-socket.on("screen:created", async ({ code }) => {
-  currentRoomCode = code;
-  document.getElementById("roomCode").textContent = code;
-
-  const joinUrl = await buildJoinUrl(code);
-  new QRCode(document.getElementById("qrcode"), {
-    text: joinUrl,
-    width: 220,
-    height: 220,
-  });
+    const joinUrl = await Platform.screenConnect.buildJoinUrl(GAME_ID, code);
+    new QRCode(document.getElementById("qrcode"), {
+      text: joinUrl,
+      width: 220,
+      height: 220,
+    });
+  },
 });
 
 // --- Narrador (voz sintética) + efectos de sonido (Web Audio) ---
@@ -127,23 +113,13 @@ soundFab.addEventListener("click", () => {
 
 socket.on("lobby:update", ({ players }) => {
   const list = document.getElementById("playerList");
-  const count = document.getElementById("playerCount");
-
-  list.innerHTML = "";
-  const connectedPlayers = players.filter((p) => p.connected);
-  count.textContent = connectedPlayers.length;
-
-  players.forEach((p) => {
-    const li = document.createElement("li");
-    li.innerHTML = `<span class="player-icon">${p.icon || "❔"}</span> ${p.name}${
-      p.connected ? "" : " (desconectado)"
-    }`;
-    li.className = p.connected ? "player online" : "player offline";
-    list.appendChild(li);
-  });
-
   const startBtn = document.getElementById("startBtn");
-  startBtn.disabled = connectedPlayers.length < 6 || connectedPlayers.length > 10;
+  Platform.roster.renderLobbyList(list, players, {
+    onCount: (count) => {
+      document.getElementById("playerCount").textContent = count;
+      startBtn.disabled = count < 6 || count > 10;
+    },
+  });
 });
 
 document.getElementById("startBtn").addEventListener("click", () => {
@@ -169,10 +145,6 @@ socket.on("timer:tick", ({ secondsLeft }) => {
 // --- Tutorial de reglas y roles, disponible en cualquier momento (la
 //     muestra automática al arrancar vive dentro de game:started, más
 //     abajo — este botón es solo para reabrirlo después). ---
-const rulesFab = document.getElementById("rulesFab");
-const rulesModal = document.getElementById("rulesModal");
-const rulesModalContent = document.getElementById("rulesModalContent");
-
 function buildRulesModalHtml() {
   const data = window.GAME_RULES || { allRoles: [], generalRules: [] };
   const rolesHtml = data.allRoles
@@ -196,20 +168,17 @@ function buildRulesModalHtml() {
     <div class="roles-catalog">${rolesHtml}</div>
   `;
 }
-rulesFab.addEventListener("click", () => {
-  rulesModalContent.innerHTML = buildRulesModalHtml();
-  rulesModal.classList.remove("hidden");
-});
-document.getElementById("rulesModalClose").addEventListener("click", () => {
-  rulesModal.classList.add("hidden");
-});
-rulesModal.addEventListener("click", (e) => {
-  if (e.target === rulesModal) rulesModal.classList.add("hidden");
+Platform.rules.init({
+  fabId: "rulesFab",
+  modalId: "rulesModal",
+  closeId: "rulesModalClose",
+  contentId: "rulesModalContent",
+  buildHtml: buildRulesModalHtml,
 });
 
-// --- Panel del host: ver jugadores y expulsar ---
-const hostFab = document.getElementById("hostFab");
-const hostModal = document.getElementById("hostModal");
+// --- Panel del host: ver jugadores y expulsar (player:kick es un evento
+//     genérico de la plataforma; el render de este panel puntual es propio
+//     de Mafia por el detalle de "alive" que muestra). ---
 const hostModalContent = document.getElementById("hostModalContent");
 
 function renderHostRoster(players) {
@@ -237,50 +206,15 @@ function openHostModal() {
   socket.emit("screen:getRoster", null, (res) => {
     if (res.ok) renderHostRoster(res.players);
   });
-  hostModal.classList.remove("hidden");
 }
-hostFab.addEventListener("click", openHostModal);
-document.getElementById("hostModalClose").addEventListener("click", () => {
-  hostModal.classList.add("hidden");
-});
-hostModal.addEventListener("click", (e) => {
-  if (e.target === hostModal) hostModal.classList.add("hidden");
-});
+Platform.wireModal({ fabId: "hostFab", modalId: "hostModal", closeId: "hostModalClose", onOpen: openHostModal });
 
 socket.on("player:removed", ({ removedIds }) => {
   removedIds.forEach((id) => document.getElementById(`avatar-${id}`)?.remove());
 });
 
 // --- Historial público de la partida ---
-const historyFab = document.getElementById("historyFab");
-const historyModal = document.getElementById("historyModal");
-const historyList = document.getElementById("historyList");
-
-function renderHistoryEntries(entries) {
-  historyList.innerHTML = entries.length
-    ? entries.map((e) => `<li>${e.icon} ${e.text}</li>`).join("")
-    : `<li class="hint">Todavía no pasó nada.</li>`;
-  historyList.scrollTop = historyList.scrollHeight;
-}
-
-historyFab.addEventListener("click", () => {
-  socket.emit("history:get", null, (res) => {
-    if (res.ok) renderHistoryEntries(res.entries);
-  });
-  historyModal.classList.remove("hidden");
-});
-document.getElementById("historyModalClose").addEventListener("click", () => {
-  historyModal.classList.add("hidden");
-});
-historyModal.addEventListener("click", (e) => {
-  if (e.target === historyModal) historyModal.classList.add("hidden");
-});
-socket.on("history:entry", (entry) => {
-  if (!historyModal.classList.contains("hidden")) {
-    historyList.insertAdjacentHTML("beforeend", `<li>${entry.icon} ${entry.text}</li>`);
-    historyList.scrollTop = historyList.scrollHeight;
-  }
-});
+Platform.history.init({ socket, fabId: "historyFab", modalId: "historyModal", closeId: "historyModalClose", listId: "historyList" });
 
 // Todo reemplazo de la pantalla principal pasa por acá — así cualquier paso
 // de narrativa que haya quedado pendiente de la fase anterior se corta
@@ -312,7 +246,7 @@ async function renderLobbyShell(code) {
     </section>
   `);
   new QRCode(document.getElementById("qrcode"), {
-    text: await buildJoinUrl(code),
+    text: await Platform.screenConnect.buildJoinUrl(GAME_ID, code),
     width: 220,
     height: 220,
   });
@@ -723,7 +657,7 @@ socket.on("day:resolved", ({ executed, guiltyCount, innocentCount, accused, deat
   ];
 
   const revenge = deaths.slice(1); // si el ejecutado era el Cazador, se lleva a alguien más
-  // El Lycan sobrevive a su propia ejecución (ver killPlayer en server.js) —
+  // El Lycan sobrevive a su propia ejecución (ver killPlayer en logic.js) —
   // si es el caso, "executed" sigue en true pero nadie murió realmente.
   const accusedTransformed = (transformations || []).some((t) => t.id === accused.id);
 
