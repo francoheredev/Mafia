@@ -13,7 +13,8 @@
 // mismo nombre de evento (ej. los dos usan "start") sin pisarse nunca,
 // porque cada socket solo puede disparar el handler del plugin dueño de la
 // sala en la que está en ese momento.
-const { rooms, publicPlayerList } = require("./rooms");
+const { randomUUID } = require("crypto");
+const { rooms, publicPlayerList, capPush } = require("./rooms");
 const { getGame, listGames } = require("./registry");
 
 // Unión de todos los nombres de evento custom que declaró CUALQUIER plugin
@@ -57,22 +58,20 @@ function attachPluginEvents(io, socket) {
 // mensajes de chat ya mandados) la resuelve la plataforma sin saber nada
 // del juego; lo que sea semánticamente propio de cada juego (asignación de
 // roles, votos en curso, etc.) se delega al hook remapPlayerId(gameState,
-// chat, oldId, newId) del plugin dueño de la sala.
-//
-// TODO(paso 7): el recorrido de canales de chat sigue hardcodeado a
-// ["general", "fantasmas"] hasta que se generalicen los canales de chat vía
-// plugin.chatChannels.
+// chat, oldId, newId) del plugin dueño de la sala. Los canales de chat de
+// room.chat ya son genéricos (sus claves salen de plugin.chatChannels al
+// crear la sala — ver screen:create), así que recorrer Object.keys(room.chat)
+// alcanza para remapear el senderId de los mensajes ya mandados sin que la
+// plataforma necesite conocer el nombre de ningún canal en particular.
 function remapPlayerId(room, oldId, newId, plugin) {
   room.players[newId] = room.players[oldId];
   delete room.players[oldId];
 
-  if (room.chat) {
-    ["general", "fantasmas"].forEach((channel) => {
-      (room.chat[channel] || []).forEach((msg) => {
-        if (msg.senderId === oldId) msg.senderId = newId;
-      });
+  Object.keys(room.chat || {}).forEach((channel) => {
+    (room.chat[channel] || []).forEach((msg) => {
+      if (msg.senderId === oldId) msg.senderId = newId;
     });
-  }
+  });
 
   plugin?.remapPlayerId?.(room.gameState, room.chat, oldId, newId);
 }
@@ -141,6 +140,89 @@ function attachConnectionHandlers(io, socket) {
     }
     ack?.(kickPlayer(io, room, roomCode, targetId));
   });
+
+  // --- Chat: cada juego declara sus propios canales (ver plugin.chatChannels
+  //     — { id, canSend, recipients }). La plataforma no sabe qué significa
+  //     "fantasmas" ni ningún otro canal: solo valida que exista, le
+  //     pregunta al canal si este socket puede usarlo (canSend) y le
+  //     pregunta a quién entregarle el mensaje (recipients) — nunca a toda
+  //     la sala, para que la pantalla compartida nunca reciba tráfico de
+  //     chat y un canal restringido nunca se filtre a quien no corresponde. ---
+  socket.on("chat:send", ({ channel, text }, ack) => {
+    const { roomCode } = socket.data;
+    const room = rooms[roomCode];
+    if (!room) {
+      ack?.({ ok: false, error: "La sala ya no existe." });
+      return;
+    }
+    const channelConfig = findChatChannel(room, channel);
+    if (!channelConfig || !room.chat[channel]) {
+      ack?.({ ok: false, error: "Canal de chat inválido." });
+      return;
+    }
+    const sender = room.players[socket.id];
+    if (!sender) {
+      ack?.({ ok: false, error: "No estás en esta sala." });
+      return;
+    }
+    if (!channelConfig.canSend(room, socket.id)) {
+      ack?.({ ok: false, error: "No podés usar este canal de chat." });
+      return;
+    }
+    const cleanText = (text || "").trim().slice(0, 300);
+    if (!cleanText) {
+      ack?.({ ok: false, error: "Escribí algo primero." });
+      return;
+    }
+
+    const msg = {
+      id: randomUUID(),
+      senderId: socket.id,
+      senderName: sender.name,
+      senderIcon: sender.icon,
+      text: cleanText,
+      ts: Date.now(),
+    };
+    capPush(room.chat[channel], msg);
+
+    ack?.({ ok: true });
+    channelConfig.recipients(room).forEach((id) => io.to(id).emit("chat:message", { channel, ...msg }));
+  });
+
+  socket.on("chat:getHistory", ({ channel }, ack) => {
+    const { roomCode } = socket.data;
+    const room = rooms[roomCode];
+    if (!room) {
+      ack?.({ ok: false, error: "La sala ya no existe." });
+      return;
+    }
+    const channelConfig = findChatChannel(room, channel);
+    if (!channelConfig || !room.chat[channel]) {
+      ack?.({ ok: false, error: "Canal de chat inválido." });
+      return;
+    }
+    if (!channelConfig.canSend(room, socket.id)) {
+      ack?.({ ok: false, error: "No podés usar este canal de chat." });
+      return;
+    }
+    ack?.({ ok: true, messages: room.chat[channel] });
+  });
+
+  // --- Historial público de la partida (pantalla y celulares) ---
+  socket.on("history:get", (_data, ack) => {
+    const { roomCode } = socket.data;
+    const room = rooms[roomCode];
+    if (!room) {
+      ack?.({ ok: false, error: "La sala ya no existe." });
+      return;
+    }
+    ack?.({ ok: true, entries: room.history });
+  });
+}
+
+function findChatChannel(room, channelId) {
+  const plugin = getGame(room.gameId);
+  return (plugin?.chatChannels || []).find((c) => c.id === channelId);
 }
 
 function kickPlayer(io, room, roomCode, targetId) {

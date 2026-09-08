@@ -12,8 +12,8 @@ const { randomUUID } = require("crypto");
 const { Server } = require("socket.io");
 const { assignRoles, getMafiaAccomplices, getRolesInPlay, ROLE_INFO } = require("./roles");
 const { GENERAL_RULES } = require("./rules");
-const { rooms, capPush, pushHistory, generateRoomCode, publicPlayerList } = require("./platform/core/rooms");
-const { registerGame } = require("./platform/core/registry");
+const { rooms, pushHistory, generateRoomCode, publicPlayerList } = require("./platform/core/rooms");
+const { registerGame, getGame } = require("./platform/core/registry");
 const { attachPluginEvents, attachConnectionHandlers } = require("./platform/core/connection");
 
 const app = express();
@@ -1251,12 +1251,34 @@ const mafiaSocketHandlers = {
   },
 };
 
+// --- Chat: "general" (todos los conectados, en cualquier momento) y
+//     "fantasmas" (solo jugadores ya eliminados, entre ellos). Implementa
+//     el campo chatChannels del contrato de plugin — la plataforma (ver
+//     platform/core/connection.js) usa canSend para decidir quién puede
+//     mandar/leer cada canal y recipients para saber a quién entregarle
+//     cada mensaje; nunca a toda la sala, así la pantalla compartida nunca
+//     recibe tráfico de chat y "fantasmas" nunca se filtra a un jugador
+//     vivo.
+const mafiaChatChannels = [
+  {
+    id: "general",
+    canSend: () => true,
+    recipients: (room) => Object.keys(room.players),
+  },
+  {
+    id: "fantasmas",
+    canSend: (room, senderId) => room.players[senderId]?.alive === false,
+    recipients: (room) => Object.keys(room.players).filter((id) => room.players[id].alive === false),
+  },
+];
+
 registerGame({
   id: "mafia",
   socketHandlers: mafiaSocketHandlers,
   onReconnect: mafiaOnReconnect,
   remapPlayerId: mafiaRemapPlayerId,
   onKick: mafiaOnKick,
+  chatChannels: mafiaChatChannels,
 });
 
 io.on("connection", (socket) => {
@@ -1273,12 +1295,17 @@ io.on("connection", (socket) => {
     // juegos reales y los clientes siempre manden gameId explícito.
     const gameId = data?.gameId || "mafia";
     const code = generateRoomCode();
+    const plugin = getGame(gameId);
+    const chat = {};
+    (plugin?.chatChannels || []).forEach((c) => {
+      chat[c.id] = [];
+    });
     rooms[code] = {
       screenSocketId: socket.id,
       gameId,
       players: {},
       phase: "lobby",
-      chat: { general: [], fantasmas: [] },
+      chat,
       history: [],
       gameState: { loversIds: [] },
     };
@@ -1386,80 +1413,6 @@ io.on("connection", (socket) => {
     ack?.({ ok: true });
     io.to(roomCode).emit("game:restarted");
     io.to(roomCode).emit("lobby:update", { players: publicPlayerList(room) });
-  });
-
-  // --- Chat: "general" (todos los conectados, en cualquier momento) y
-  //     "fantasmas" (solo jugadores ya eliminados, entre ellos). Siempre se
-  //     entrega dirigido por id, nunca a toda la sala — así la pantalla
-  //     compartida nunca recibe tráfico de chat y "fantasmas" nunca se
-  //     filtra a un jugador vivo. ---
-  function chatRecipients(room, channel) {
-    if (channel === "fantasmas") {
-      return Object.keys(room.players).filter((id) => room.players[id].alive === false);
-    }
-    return Object.keys(room.players);
-  }
-
-  socket.on("chat:send", ({ channel, text }, ack) => {
-    const { roomCode } = socket.data;
-    const room = rooms[roomCode];
-    if (!room || !room.chat[channel]) {
-      ack?.({ ok: false, error: "Canal de chat inválido." });
-      return;
-    }
-    const sender = room.players[socket.id];
-    if (!sender) {
-      ack?.({ ok: false, error: "No estás en esta sala." });
-      return;
-    }
-    if (channel === "fantasmas" && sender.alive !== false) {
-      ack?.({ ok: false, error: "Solo los fantasmas pueden usar este chat." });
-      return;
-    }
-    const cleanText = (text || "").trim().slice(0, 300);
-    if (!cleanText) {
-      ack?.({ ok: false, error: "Escribí algo primero." });
-      return;
-    }
-
-    const msg = {
-      id: randomUUID(),
-      senderId: socket.id,
-      senderName: sender.name,
-      senderIcon: sender.icon,
-      text: cleanText,
-      ts: Date.now(),
-    };
-    capPush(room.chat[channel], msg);
-
-    ack?.({ ok: true });
-    chatRecipients(room, channel).forEach((id) => io.to(id).emit("chat:message", { channel, ...msg }));
-  });
-
-  socket.on("chat:getHistory", ({ channel }, ack) => {
-    const { roomCode } = socket.data;
-    const room = rooms[roomCode];
-    if (!room || !room.chat[channel]) {
-      ack?.({ ok: false, error: "Canal de chat inválido." });
-      return;
-    }
-    const sender = room.players[socket.id];
-    if (channel === "fantasmas" && sender?.alive !== false) {
-      ack?.({ ok: false, error: "Solo los fantasmas pueden usar este chat." });
-      return;
-    }
-    ack?.({ ok: true, messages: room.chat[channel] });
-  });
-
-  // --- Historial público de la partida (pantalla y celulares) ---
-  socket.on("history:get", (_data, ack) => {
-    const { roomCode } = socket.data;
-    const room = rooms[roomCode];
-    if (!room) {
-      ack?.({ ok: false, error: "La sala ya no existe." });
-      return;
-    }
-    ack?.({ ok: true, entries: room.history });
   });
 
   socket.on("disconnect", () => {
