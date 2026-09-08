@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Blind Shot — Unirse</title>
+<link rel="stylesheet" href="/platform/platform.css" />
+<link rel="stylesheet" href="/games/blind-shot/blind-shot.css" />
+</head>
+<body class="player">
+  <main class="join-screen">
+    <h1>🎯 Blind Shot</h1>
+
+    <form id="joinForm">
+      <label>
+        Código de sala
+        <input id="codeInput" maxlength="4" placeholder="ABCD" autocapitalize="characters" required />
+      </label>
+      <label>
+        Tu nombre
+        <input id="nameInput" maxlength="20" placeholder="Tu nombre" required />
+      </label>
+      <button type="submit">Unirme</button>
+    </form>
+
+    <p id="errorMsg" class="error"></p>
+
+    <div id="waitingRoom" class="hidden">
+      <p>✅ Estás adentro, <strong id="myName"></strong>.</p>
+      <p class="hint">Esperando a que el resto se una / arranque la partida...</p>
+    </div>
+  </main>
+
+  <!-- Fuera de <main> a propósito: así sobreviven a los reemplazos de
+       #waitingRoom en cada ronda. -->
+  <button id="rulesFab" class="role-fab rules-fab-pos">📖</button>
+  <div id="rulesModal" class="role-modal hidden">
+    <div class="role-modal-panel">
+      <button id="rulesModalClose" class="role-modal-close">✕</button>
+      <div id="rulesModalContent"></div>
+    </div>
+  </div>
+
+  <!-- Chat: un solo canal general, abierto a todos en cualquier momento
+       (ver games/blind-shot/plugin.js — acá no hay un bando propio de
+       "eliminados" como en Mafia). -->
+  <button id="chatFab" class="role-fab chat-fab-pos">💬</button>
+  <div id="chatModal" class="role-modal hidden">
+    <div class="role-modal-panel">
+      <button id="chatModalClose" class="role-modal-close">✕</button>
+      <div class="chat-tabs">
+        <button type="button" id="chatTabGeneral" class="chat-tab active" data-channel="general">General</button>
+      </div>
+      <ul id="chatLog" class="chat-log"></ul>
+      <form id="chatForm" class="chat-input-row">
+        <input id="chatInput" maxlength="300" placeholder="Escribí un mensaje..." autocomplete="off" />
+        <button type="submit">Enviar</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Historial público de la partida. -->
+  <button id="historyFab" class="role-fab history-fab-pos">📜</button>
+  <div id="historyModal" class="role-modal hidden">
+    <div class="role-modal-panel">
+      <button id="historyModalClose" class="role-modal-close">✕</button>
+      <h2>📜 Historial</h2>
+      <ul id="historyList" class="history-list"></ul>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/platform/platform.js"></script>
+  <script src="/platform/roster.js"></script>
+  <script src="/platform/chat.js"></script>
+  <script src="/platform/history.js"></script>
+  <script src="/platform/rules.js"></script>
+  <script src="/platform/connect.js"></script>
+  <script src="/games/blind-shot/player.js"></script>
+</body>
+</html>
