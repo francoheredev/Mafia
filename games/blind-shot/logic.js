@@ -9,7 +9,7 @@
 //
 // room.gameState (ver plan):
 //   {
-//     zoneRadius: number,      // se achica ronda a ronda
+//     zone: { halfWidth, halfHeight },  // se achica ronda a ronda (mismo aspecto que ARENA_*)
 //     roundNumber: number,
 //     round: { number, deadline, timer } | null,  // solo con phase === "round-active"/"reveal"
 //     players: { [playerId]: { x, y, aim, submission: null | { x, y, angle } } },
@@ -19,6 +19,13 @@
 // room.players[id] es identidad genérica de la plataforma
 // (name/connected/alive/icon/token), gameState es simulación propia del
 // juego. Esto además hace que remapPlayerId sea trivial.
+//
+// La zona es un RECTÁNGULO (no un círculo, a pedido del usuario tras
+// probarlo: "que la zona sea toda la pantalla del celular") centrado en el
+// origen, con la proporción de una pantalla de celular en vertical
+// (ZONE_ASPECT). Se achica manteniendo esa proporción: mismo factor de
+// achique en ambos ejes cada ronda, con un piso en cada eje que también
+// respeta la proporción — así el achique nunca "deforma" el rectángulo.
 
 const { pushHistory } = require("../../platform/core/rooms");
 const { startTimer } = require("../../platform/core/timer");
@@ -27,10 +34,17 @@ const { startTimer } = require("../../platform/core/timer");
 const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 16;
 
-const ARENA_RADIUS = 1000;
+// Proporción de pantalla de celular en vertical (9:16). El área total del
+// arena y el piso del achique se derivan de esto para que, en todo
+// momento, la zona sea un rectángulo con esta misma proporción.
+const ZONE_ASPECT = 9 / 16;
+const ARENA_HALF_HEIGHT = 1000;
+const ARENA_HALF_WIDTH = ARENA_HALF_HEIGHT * ZONE_ASPECT;
+
 const SPAWN_MARGIN = 0.9;
 const ZONE_SHRINK_FACTOR = 0.85;
-const ZONE_MIN_RADIUS = 120;
+const ZONE_MIN_HALF_HEIGHT = 120;
+const ZONE_MIN_HALF_WIDTH = ZONE_MIN_HALF_HEIGHT * ZONE_ASPECT;
 
 // Bajo NODE_ENV === "test" se acortan — a diferencia de Mafia (que puede
 // resolver antes si todos ya actuaron), Blind Shot nunca resuelve antes de
@@ -41,7 +55,11 @@ const ROUND_MOVE_MS = IS_TEST ? 800 : 20000;
 const REVEAL_MS = IS_TEST ? 300 : 8000;
 const MOVE_EPSILON = 1;
 
-const SHOT_MAX_RANGE = ARENA_RADIUS * 2.5;
+// Ya no hay un único "radio" del que derivar el rango máximo — se usa la
+// diagonal del arena completo (la distancia máxima posible entre dos
+// puntos dentro de él) con margen de sobra.
+const ARENA_DIAGONAL = 2 * Math.hypot(ARENA_HALF_WIDTH, ARENA_HALF_HEIGHT);
+const SHOT_MAX_RANGE = ARENA_DIAGONAL * 1.5;
 const HIT_CORRIDOR_HALF_WIDTH = 40;
 
 function getAliveIds(room) {
@@ -58,27 +76,29 @@ function checkWinner(room) {
   return null;
 }
 
-// Empuja (x, y) hacia adentro del radio dado si quedó afuera — se usa tanto
-// para el re-clampeo del servidor sobre lo que manda el celular (nunca
-// confía en el clamp del cliente) como para "empujar" a los sobrevivientes
-// hacia adentro cuando la zona se achica entre rondas.
-function clampToRadius(x, y, radius) {
-  const dist = Math.hypot(x, y);
-  if (dist <= radius || dist === 0) return { x, y };
-  const scale = radius / dist;
-  return { x: x * scale, y: y * scale };
+// Empuja (x, y) hacia adentro del rectángulo dado si quedó afuera — se usa
+// tanto para el re-clampeo del servidor sobre lo que manda el celular
+// (nunca confía en el clamp del cliente) como para "empujar" a los
+// sobrevivientes hacia adentro cuando la zona se achica entre rondas. Al
+// ser un rectángulo (no un círculo), el clamp es más simple que antes: un
+// tope por eje, independiente.
+function clampToZone(x, y, halfWidth, halfHeight) {
+  return {
+    x: Math.max(-halfWidth, Math.min(halfWidth, x)),
+    y: Math.max(-halfHeight, Math.min(halfHeight, y)),
+  };
 }
 
-// Distribución uniforme en área (no amontonada en el centro): ángulo
-// parejo + radio con sqrt(random). Pura — no toca ningún room, así que
+// Distribución uniforme en el rectángulo del arena (con SPAWN_MARGIN como
+// margen interno). Pura — no toca ningún room, así que
 // tests/blind-shot/test-start.js la prueba directo.
 function spawnPositions(count) {
-  const maxR = ARENA_RADIUS * SPAWN_MARGIN;
-  return Array.from({ length: count }, () => {
-    const angle = Math.random() * Math.PI * 2;
-    const r = Math.sqrt(Math.random()) * maxR;
-    return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
-  });
+  const maxHalfWidth = ARENA_HALF_WIDTH * SPAWN_MARGIN;
+  const maxHalfHeight = ARENA_HALF_HEIGHT * SPAWN_MARGIN;
+  return Array.from({ length: count }, () => ({
+    x: (Math.random() * 2 - 1) * maxHalfWidth,
+    y: (Math.random() * 2 - 1) * maxHalfHeight,
+  }));
 }
 
 // Fisher–Yates con Math.random(), sin seed — mismo criterio que
@@ -95,7 +115,7 @@ function shuffle(arr) {
 
 function createGameState() {
   return {
-    zoneRadius: ARENA_RADIUS,
+    zone: { halfWidth: ARENA_HALF_WIDTH, halfHeight: ARENA_HALF_HEIGHT },
     roundNumber: 0,
     round: null,
     players: {},
@@ -123,8 +143,8 @@ function startMovementPhase(io, room, roomCode) {
 
   io.to(roomCode).emit("round:begin", {
     number: gs.roundNumber,
-    zoneRadius: gs.zoneRadius,
-    arenaRadius: ARENA_RADIUS,
+    zone: gs.zone,
+    arena: { halfWidth: ARENA_HALF_WIDTH, halfHeight: ARENA_HALF_HEIGHT },
     aliveCount: aliveIds.length,
   });
 
@@ -134,7 +154,7 @@ function startMovementPhase(io, room, roomCode) {
   aliveIds.forEach((id) => {
     const p = gs.players[id];
     io.to(id).emit("round:yourTurn", {
-      zoneRadius: gs.zoneRadius,
+      zone: gs.zone,
       startX: p.x,
       startY: p.y,
       deadline,
@@ -200,7 +220,7 @@ function findHit(shooter, shooterId, aliveIdsAtStart, resolved, room, deadThisRo
 // hace los emits/pushHistory.
 function resolveRoundWithOrder(room, order) {
   const gs = room.gameState;
-  const zoneRadiusBefore = gs.zoneRadius;
+  const zoneBefore = gs.zone;
   const aliveIdsAtStart = order;
 
   // Paso 1: posición/ángulo final de cada jugador vivo al empezar la ronda,
@@ -261,23 +281,27 @@ function resolveRoundWithOrder(room, order) {
 
   const winner = checkWinner(room);
 
-  // Paso 4/5: si no hay ganador, la zona se achica (con piso en
-  // ZONE_MIN_RADIUS — al tocar el piso, la fórmula sola satura ahí, no
-  // hace falta caso especial de "sudden death") y empuja hacia adentro a
-  // cualquier sobreviviente que haya quedado afuera del nuevo radio.
-  let zoneRadiusAfter = zoneRadiusBefore;
+  // Paso 4/5: si no hay ganador, la zona se achica (mismo factor en ambos
+  // ejes, con piso en cada eje — al tocar el piso, la fórmula sola satura
+  // ahí, no hace falta caso especial de "sudden death") y empuja hacia
+  // adentro a cualquier sobreviviente que haya quedado afuera del nuevo
+  // rectángulo.
+  let zoneAfter = zoneBefore;
   if (!winner) {
-    zoneRadiusAfter = Math.max(zoneRadiusBefore * ZONE_SHRINK_FACTOR, ZONE_MIN_RADIUS);
+    zoneAfter = {
+      halfWidth: Math.max(zoneBefore.halfWidth * ZONE_SHRINK_FACTOR, ZONE_MIN_HALF_WIDTH),
+      halfHeight: Math.max(zoneBefore.halfHeight * ZONE_SHRINK_FACTOR, ZONE_MIN_HALF_HEIGHT),
+    };
     getAliveIds(room).forEach((id) => {
       const p = gs.players[id];
-      const clamped = clampToRadius(p.x, p.y, zoneRadiusAfter);
+      const clamped = clampToZone(p.x, p.y, zoneAfter.halfWidth, zoneAfter.halfHeight);
       p.x = clamped.x;
       p.y = clamped.y;
     });
-    gs.zoneRadius = zoneRadiusAfter;
+    gs.zone = zoneAfter;
   }
 
-  return { events, winner, zoneRadiusBefore, zoneRadiusAfter };
+  return { events, winner, zoneBefore, zoneAfter };
 }
 
 // Wrapper fino: arma el orden real (Fisher–Yates sobre los vivos al
@@ -289,7 +313,7 @@ function resolveRound(io, room, roomCode) {
 
   const aliveIdsAtStart = getAliveIds(room);
   const order = shuffle(aliveIdsAtStart);
-  const { events, winner, zoneRadiusBefore, zoneRadiusAfter } = resolveRoundWithOrder(room, order);
+  const { events, winner, zoneBefore, zoneAfter } = resolveRoundWithOrder(room, order);
 
   room.phase = winner ? "game-over" : "reveal";
 
@@ -307,8 +331,8 @@ function resolveRound(io, room, roomCode) {
   io.to(roomCode).emit("round:resolved", {
     number: room.gameState.roundNumber,
     order: events,
-    zoneRadiusBefore,
-    zoneRadiusAfter,
+    zoneBefore,
+    zoneAfter,
     winner,
   });
 
@@ -353,7 +377,7 @@ function blindShotOnReconnect({ io, room, roomCode, playerId }) {
     const p = gs.players[playerId];
     if (!p) return;
     io.to(playerId).emit("round:yourTurn", {
-      zoneRadius: gs.zoneRadius,
+      zone: gs.zone,
       startX: p.x,
       startY: p.y,
       deadline: gs.round.deadline, // el deadline ORIGINAL, no uno nuevo — sin drift de reloj
@@ -402,13 +426,16 @@ function blindShotOnKick({ io, room, roomCode, targetId }) {
 module.exports = {
   MIN_PLAYERS,
   MAX_PLAYERS,
-  ARENA_RADIUS,
-  ZONE_MIN_RADIUS,
+  ZONE_ASPECT,
+  ARENA_HALF_WIDTH,
+  ARENA_HALF_HEIGHT,
+  ZONE_MIN_HALF_WIDTH,
+  ZONE_MIN_HALF_HEIGHT,
   ROUND_MOVE_MS,
   REVEAL_MS,
   getAliveIds,
   checkWinner,
-  clampToRadius,
+  clampToZone,
   spawnPositions,
   shuffle,
   createGameState,

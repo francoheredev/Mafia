@@ -163,49 +163,66 @@ function arenaShellHtml() {
     <div class="arena-wrap">
       <h1 id="arenaTitle">🎯 Blind Shot</h1>
       <p class="arena-stats" id="arenaStats"></p>
-      <canvas id="arenaCanvas" width="600" height="600"></canvas>
+      <canvas id="arenaCanvas" width="450" height="800"></canvas>
     </div>
   `;
 }
 
+const ARENA_MARKER_PX = 40; // ícono del tirador en la animación de revelación
+const ARENA_HIT_RING_PX = 26;
+
 let arenaCanvas = null;
 let arenaCtx = null;
-let arenaSize = 0;
-let arenaScale = 0; // px por unidad de mundo, fijo (usa ARENA_RADIUS)
+let arenaWidth = 0;
+let arenaHeight = 0;
+let arenaScale = 0; // px por unidad de mundo, fijo (usa el arena completo, no la zona vigente)
 
 function ensureArenaCanvas() {
   if (arenaCanvas && document.body.contains(arenaCanvas)) return;
   renderScreen(arenaShellHtml());
   arenaCanvas = document.getElementById("arenaCanvas");
   arenaCtx = arenaCanvas.getContext("2d");
-  arenaSize = arenaCanvas.width;
+  arenaWidth = arenaCanvas.width;
+  arenaHeight = arenaCanvas.height;
 }
 
 function worldToArenaCanvas(wx, wy) {
   return {
-    x: arenaSize / 2 + wx * arenaScale,
-    y: arenaSize / 2 - wy * arenaScale,
+    x: arenaWidth / 2 + wx * arenaScale,
+    y: arenaHeight / 2 - wy * arenaScale,
   };
 }
 
-function drawZoneOnly(zoneRadius, arenaRadius, aliveCount) {
-  arenaCtx.clearRect(0, 0, arenaSize, arenaSize);
+// Distancia (mundo) desde (x0,y0) hasta el borde del rectángulo dado,
+// siguiendo `angle` — mismo método que distanceToZoneEdge en player.js
+// (no hay forma de compartir esta función entre cliente y servidor/otra
+// página sin bundler en este proyecto, así que se reimplementa acá).
+function distanceToRectEdge(x0, y0, angle, halfWidth, halfHeight) {
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  let t = Infinity;
+  if (dx > 0) t = Math.min(t, (halfWidth - x0) / dx);
+  else if (dx < 0) t = Math.min(t, (-halfWidth - x0) / dx);
+  if (dy > 0) t = Math.min(t, (halfHeight - y0) / dy);
+  else if (dy < 0) t = Math.min(t, (-halfHeight - y0) / dy);
+  return Number.isFinite(t) ? t : 0;
+}
 
-  // Referencia tenue del área total del arena (fija, ARENA_RADIUS).
-  const full = arenaRadius * arenaScale;
-  arenaCtx.beginPath();
-  arenaCtx.arc(arenaSize / 2, arenaSize / 2, full, 0, Math.PI * 2);
-  arenaCtx.strokeStyle = "#1c2233";
-  arenaCtx.lineWidth = 2;
-  arenaCtx.stroke();
+function drawArenaRect(halfWidth, halfHeight, strokeStyle, lineWidth) {
+  const w = halfWidth * arenaScale * 2;
+  const h = halfHeight * arenaScale * 2;
+  arenaCtx.strokeStyle = strokeStyle;
+  arenaCtx.lineWidth = lineWidth;
+  arenaCtx.strokeRect(arenaWidth / 2 - w / 2, arenaHeight / 2 - h / 2, w, h);
+}
 
+function drawZoneOnly(zone, arena, aliveCount) {
+  arenaCtx.clearRect(0, 0, arenaWidth, arenaHeight);
+
+  // Referencia tenue del área total del arena (fija).
+  drawArenaRect(arena.halfWidth, arena.halfHeight, "#1c2233", 2);
   // Zona vigente.
-  const r = zoneRadius * arenaScale;
-  arenaCtx.beginPath();
-  arenaCtx.arc(arenaSize / 2, arenaSize / 2, r, 0, Math.PI * 2);
-  arenaCtx.strokeStyle = "#e8c07d";
-  arenaCtx.lineWidth = 3;
-  arenaCtx.stroke();
+  drawArenaRect(zone.halfWidth, zone.halfHeight, "#e8c07d", 3);
 
   const stats = document.getElementById("arenaStats");
   if (stats) stats.textContent = `🕶️ Todos a ciegas... — ${aliveCount} en pie`;
@@ -219,12 +236,12 @@ socket.on("game:started", ({ playerCount }) => {
   `);
 });
 
-let arenaRadiusCache = 1000;
-socket.on("round:begin", ({ number, zoneRadius, arenaRadius, aliveCount }) => {
-  arenaRadiusCache = arenaRadius;
+let arenaCache = { halfWidth: 562.5, halfHeight: 1000 };
+socket.on("round:begin", ({ number, zone, arena, aliveCount }) => {
+  arenaCache = arena;
   ensureArenaCanvas();
-  if (!arenaScale) arenaScale = arenaSize / 2 / arenaRadius;
-  refreshRoster(() => drawZoneOnly(zoneRadius, arenaRadius, aliveCount));
+  if (!arenaScale) arenaScale = arenaHeight / 2 / arena.halfHeight;
+  refreshRoster(() => drawZoneOnly(zone, arena, aliveCount));
   const title = document.getElementById("arenaTitle");
   if (title) title.textContent = `🎯 Ronda ${number}`;
 });
@@ -234,22 +251,11 @@ socket.on("round:begin", ({ number, zoneRadius, arenaRadius, aliveCount }) => {
 //     liviano acá porque es UI de pantalla, no lógica compartida). ---
 const REVEAL_STEP_MS = 1400;
 
-function drawRevealStep(zoneRadius, arenaRadius, event) {
-  arenaCtx.clearRect(0, 0, arenaSize, arenaSize);
+function drawRevealStep(zone, arena, event) {
+  arenaCtx.clearRect(0, 0, arenaWidth, arenaHeight);
 
-  const full = arenaRadius * arenaScale;
-  arenaCtx.beginPath();
-  arenaCtx.arc(arenaSize / 2, arenaSize / 2, full, 0, Math.PI * 2);
-  arenaCtx.strokeStyle = "#1c2233";
-  arenaCtx.lineWidth = 2;
-  arenaCtx.stroke();
-
-  const r = zoneRadius * arenaScale;
-  arenaCtx.beginPath();
-  arenaCtx.arc(arenaSize / 2, arenaSize / 2, r, 0, Math.PI * 2);
-  arenaCtx.strokeStyle = "#e8c07d";
-  arenaCtx.lineWidth = 3;
-  arenaCtx.stroke();
+  drawArenaRect(arena.halfWidth, arena.halfHeight, "#1c2233", 2);
+  drawArenaRect(zone.halfWidth, zone.halfHeight, "#e8c07d", 3);
 
   const shooterName = rosterById[event.shooterId]?.name || "?";
   const shooterIcon = rosterById[event.shooterId]?.icon || "❔";
@@ -262,31 +268,35 @@ function drawRevealStep(zoneRadius, arenaRadius, event) {
       endX = to.x;
       endY = to.y;
     } else {
-      const len = full * 1.4; // visual, no a escala real de SHOT_MAX_RANGE
-      endX = pos.x + Math.cos(event.angle) * len;
-      endY = pos.y - Math.sin(event.angle) * len;
+      // Sin objetivo: el láser llega hasta el borde del arena completo
+      // (no la zona vigente, más chica) — mismo criterio "largo" que el
+      // láser del celular, pero referenciado al arena fijo, igual que
+      // antes usaba `full` en vez de la zona.
+      const len = distanceToRectEdge(event.at.x, event.at.y, event.angle, arena.halfWidth, arena.halfHeight);
+      endX = pos.x + Math.cos(event.angle) * len * arenaScale;
+      endY = pos.y - Math.sin(event.angle) * len * arenaScale;
     }
     arenaCtx.beginPath();
     arenaCtx.moveTo(pos.x, pos.y);
     arenaCtx.lineTo(endX, endY);
-    arenaCtx.strokeStyle = event.hitId ? "#e07a5f" : "rgba(232, 192, 125, 0.5)";
-    arenaCtx.lineWidth = event.hitId ? 3 : 2;
+    arenaCtx.strokeStyle = event.hitId ? "#ff3b3b" : "rgba(232, 192, 125, 0.5)";
+    arenaCtx.lineWidth = event.hitId ? 4 : 2;
     arenaCtx.stroke();
 
     if (event.hitId) {
       arenaCtx.beginPath();
-      arenaCtx.arc(endX, endY, 12, 0, Math.PI * 2);
-      arenaCtx.strokeStyle = "#e07a5f";
+      arenaCtx.arc(endX, endY, ARENA_HIT_RING_PX, 0, Math.PI * 2);
+      arenaCtx.strokeStyle = "#ff3b3b";
       arenaCtx.lineWidth = 3;
       arenaCtx.stroke();
     }
   }
 
-  // El tirador de este paso.
-  arenaCtx.beginPath();
-  arenaCtx.arc(pos.x, pos.y, 10, 0, Math.PI * 2);
-  arenaCtx.fillStyle = "#f1ede4";
-  arenaCtx.fill();
+  // El tirador de este paso: su propio ícono, más grande que antes.
+  arenaCtx.font = `${ARENA_MARKER_PX}px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
+  arenaCtx.textAlign = "center";
+  arenaCtx.textBaseline = "middle";
+  arenaCtx.fillText(shooterIcon, pos.x, pos.y);
 
   const stats = document.getElementById("arenaStats");
   if (stats) {
@@ -299,27 +309,27 @@ function drawRevealStep(zoneRadius, arenaRadius, event) {
   }
 }
 
-function playReveal(zoneRadiusBefore, order, onDone) {
+function playReveal(zoneBefore, order, onDone) {
   let i = 0;
   function step() {
     if (i >= order.length) {
       onDone();
       return;
     }
-    drawRevealStep(zoneRadiusBefore, arenaRadiusCache, order[i]);
+    drawRevealStep(zoneBefore, arenaCache, order[i]);
     i++;
     narrativeTimer = setTimeout(step, REVEAL_STEP_MS);
   }
   step();
 }
 
-socket.on("round:resolved", ({ number, order, zoneRadiusBefore, zoneRadiusAfter, winner }) => {
+socket.on("round:resolved", ({ number, order, zoneBefore, zoneAfter, winner }) => {
   ensureArenaCanvas();
   refreshRoster(() => {
-    playReveal(zoneRadiusBefore, order, () => {
+    playReveal(zoneBefore, order, () => {
       // Al final, redibuja la zona ya achicada.
       const aliveCount = Object.values(rosterById).length - order.filter((e) => e.hitId).length;
-      drawZoneOnly(zoneRadiusAfter, arenaRadiusCache, Math.max(aliveCount, winner ? 1 : aliveCount));
+      drawZoneOnly(zoneAfter, arenaCache, Math.max(aliveCount, winner ? 1 : aliveCount));
 
       if (winner) {
         renderGameOver(winner);

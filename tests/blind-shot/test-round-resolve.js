@@ -5,7 +5,14 @@
 // necesita el server arriba (run-tests.js igual lo deja levantado para el
 // resto de la carpeta).
 
-const { resolveRoundWithOrder, checkWinner, HIT_CORRIDOR_HALF_WIDTH } = (() => {
+const {
+  resolveRoundWithOrder,
+  checkWinner,
+  ZONE_ASPECT,
+  ZONE_MIN_HALF_WIDTH,
+  ZONE_MIN_HALF_HEIGHT,
+  HIT_CORRIDOR_HALF_WIDTH,
+} = (() => {
   const logic = require("../../games/blind-shot/logic");
   // HIT_CORRIDOR_HALF_WIDTH no se exporta de logic.js (detalle interno de
   // la fórmula de impacto) — se re-declara acá el mismo valor solo para
@@ -20,8 +27,12 @@ function check(label, ok) {
   if (!ok) failures++;
 }
 
-function makeRoom(playersSpec, zoneRadius = 1000) {
-  const room = { players: {}, gameState: { zoneRadius, roundNumber: 1, round: null, players: {} } };
+// Por defecto, un cuadrado bien grande (no la proporción 9:16 real) — a la
+// mayoría de estos tests no les importa el aspecto, solo el clamp por eje;
+// los que sí dependen de la proporción real (achique + piso) pasan su
+// propio `zone`.
+function makeRoom(playersSpec, zone = { halfWidth: 1000, halfHeight: 1000 }) {
+  const room = { players: {}, gameState: { zone, roundNumber: 1, round: null, players: {} } };
   Object.entries(playersSpec).forEach(([id, spec]) => {
     room.players[id] = { name: spec.name || id, alive: spec.alive !== false, connected: true, icon: "🦊" };
     room.gameState.players[id] = {
@@ -130,25 +141,31 @@ function makeRoom(playersSpec, zoneRadius = 1000) {
   check("resolveRoundWithOrder con order vacío también devuelve 'draw'", winner === "draw");
 })();
 
-// --- 7. Fórmula de achique + piso: si el achique cae por debajo de
-//        ZONE_MIN_RADIUS, la fórmula sola satura ahí (sin caso especial). ---
+// --- 7. Fórmula de achique + piso: si el achique cae por debajo del piso
+//        en cualquiera de los dos ejes, la fórmula sola satura ahí (sin
+//        caso especial) — y como ambos ejes achican con el mismo factor y
+//        ambos pisos respetan ZONE_ASPECT, los dos saturan en la misma
+//        ronda. ---
 (function testShrinkFloor() {
+  const startZone = { halfHeight: 141, halfWidth: 141 * ZONE_ASPECT }; // 141*0.85=119.85, bajo el piso de 120
   const room = makeRoom(
     {
       A: { x: 0, y: 0, submission: { x: 0, y: 0, angle: Math.PI } },
       B: { x: 50, y: 50, submission: { x: 50, y: 50, angle: Math.PI } },
     },
-    141 // 141 * 0.85 = 119.85, por debajo del piso de 120
+    startZone
   );
-  const { zoneRadiusBefore, zoneRadiusAfter, winner } = resolveRoundWithOrder(room, ["A", "B"]);
+  const { zoneBefore, zoneAfter, winner } = resolveRoundWithOrder(room, ["A", "B"]);
   check("nadie murió esta ronda (ambos apuntan lejos)", winner === null);
-  check("zoneRadiusBefore es el radio con el que arrancó la ronda", zoneRadiusBefore === 141);
-  check("zoneRadiusAfter satura en ZONE_MIN_RADIUS (120)", zoneRadiusAfter === 120);
-  check("room.gameState.zoneRadius quedó actualizado", room.gameState.zoneRadius === 120);
+  check("zoneBefore es la zona con la que arrancó la ronda", zoneBefore === startZone);
+  check("zoneAfter.halfHeight satura en ZONE_MIN_HALF_HEIGHT (120)", zoneAfter.halfHeight === ZONE_MIN_HALF_HEIGHT);
+  check("zoneAfter.halfWidth satura en ZONE_MIN_HALF_WIDTH (67.5)", zoneAfter.halfWidth === ZONE_MIN_HALF_WIDTH);
+  check("room.gameState.zone quedó actualizado", room.gameState.zone === zoneAfter);
 })();
 
-// --- 8. Clamp de un sobreviviente que queda afuera del radio nuevo tras
-//        el achique — se lo empuja radialmente hasta el borde nuevo. ---
+// --- 8. Clamp de un sobreviviente que queda afuera del rectángulo nuevo
+//        tras el achique — se lo empuja hasta el borde nuevo, eje por eje
+//        (no radialmente: la zona es un rectángulo, no un círculo). ---
 (function testSurvivorClamp() {
   const room = makeRoom({
     // Mismo truco que testClearMiss: ambos sobre el eje X, apuntando
@@ -156,14 +173,14 @@ function makeRoom(playersSpec, zoneRadius = 1000) {
     // importar la distancia real que los separa (1800).
     A: { x: 900, y: 0, submission: { x: 900, y: 0, angle: Math.PI / 2 } },
     B: { x: -900, y: 0, submission: { x: -900, y: 0, angle: Math.PI / 2 } },
-  });
-  // zoneRadius 1000 -> 850 tras el achique (1000 * 0.85). A quedaba a 900
-  // del centro, afuera del nuevo radio de 850 — debería clampearse.
-  const { zoneRadiusAfter } = resolveRoundWithOrder(room, ["A", "B"]);
-  check("el achique da 850 (1000 * 0.85)", zoneRadiusAfter === 850);
-  const finalDist = Math.hypot(room.gameState.players.A.x, room.gameState.players.A.y);
-  check("A quedó exactamente en el borde del nuevo radio", Math.abs(finalDist - 850) < 1e-6);
-  check("A mantuvo su dirección radial (misma línea, solo lo empujaron)", Math.abs(room.gameState.players.A.y) < 1e-6);
+  }, { halfWidth: 1000, halfHeight: 1000 });
+  // halfWidth 1000 -> 850 tras el achique (1000 * 0.85). A quedaba a 900
+  // del centro en X, afuera del nuevo halfWidth de 850 — debería
+  // clampearse en X; su Y (0) ya estaba adentro, no se toca.
+  const { zoneAfter } = resolveRoundWithOrder(room, ["A", "B"]);
+  check("el achique da halfWidth 850 (1000 * 0.85)", zoneAfter.halfWidth === 850);
+  check("A quedó exactamente en el borde nuevo de X", room.gameState.players.A.x === 850);
+  check("A mantuvo su Y (el clamp es por eje, no radial)", room.gameState.players.A.y === 0);
 })();
 
 console.log(failures === 0 ? "\n🎉 resolveRoundWithOrder: todas las invariantes OK." : `\n❌ ${failures} chequeo(s) fallaron.`);

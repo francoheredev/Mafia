@@ -1,5 +1,5 @@
 const { io } = require("socket.io-client");
-const { spawnPositions, MIN_PLAYERS, MAX_PLAYERS, ARENA_RADIUS, SPAWN_MARGIN } = (() => {
+const { spawnPositions, MIN_PLAYERS, MAX_PLAYERS, ARENA_HALF_WIDTH, ARENA_HALF_HEIGHT, SPAWN_MARGIN } = (() => {
   const logic = require("../../games/blind-shot/logic");
   // SPAWN_MARGIN no se exporta de logic.js (queda como detalle interno) —
   // se re-declara acá el mismo valor solo para poder chequear el límite
@@ -15,14 +15,17 @@ function fail(msg) {
 
 // --- Parte A: spawnPositions(count) como función pura, sin sockets ---
 function runSpawnUnitTest() {
-  const maxR = ARENA_RADIUS * SPAWN_MARGIN;
+  const maxHalfWidth = ARENA_HALF_WIDTH * SPAWN_MARGIN;
+  const maxHalfHeight = ARENA_HALF_HEIGHT * SPAWN_MARGIN;
   const positions = spawnPositions(12);
 
   const countOk = positions.length === 12;
   console.log(`Chequeo: spawnPositions devuelve la cantidad pedida: ${countOk ? "OK" : "❌ MAL"}`);
 
-  const withinBounds = positions.every((p) => Math.hypot(p.x, p.y) <= maxR + 1e-6);
-  console.log(`Chequeo: todas las posiciones caen dentro de ARENA_RADIUS * SPAWN_MARGIN: ${withinBounds ? "OK" : "❌ MAL"}`);
+  const withinBounds = positions.every(
+    (p) => Math.abs(p.x) <= maxHalfWidth + 1e-6 && Math.abs(p.y) <= maxHalfHeight + 1e-6
+  );
+  console.log(`Chequeo: todas las posiciones caen dentro del rectángulo del arena * SPAWN_MARGIN: ${withinBounds ? "OK" : "❌ MAL"}`);
 
   // No deberían ser todas idénticas (spawn al azar, no todos apilados en el
   // mismo punto) — con 12 puntos al azar, la chance de que coincidan todos

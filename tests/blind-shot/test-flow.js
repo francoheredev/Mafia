@@ -23,8 +23,8 @@ let joinedCount = 0;
 
 let sawRoundBeginOnScreen = false;
 let yourTurnCount = 0;
-let firstZoneRadius = null;
-let arenaRadiusSeen = null;
+let firstZoneHalfHeight = null;
+let arenaSeen = null;
 
 screen.on("connect", () => screen.emit("screen:create", { gameId: "blind-shot" }));
 
@@ -53,7 +53,7 @@ screen.on("screen:created", ({ code }) => {
 
     // Cada jugador manda su jugada apenas le toca — posiciones/ángulos
     // arbitrarios (el "quién le pegó a quién" puntual no se testea acá).
-    p.on("round:yourTurn", ({ zoneRadius, startX, startY, deadline }) => {
+    p.on("round:yourTurn", ({ zone, startX, startY, deadline }) => {
       yourTurnCount++;
       if (entry.submitted) return; // por si el reconnect reenvía el mismo evento
       entry.submitted = true;
@@ -70,28 +70,28 @@ screen.on("game:started", ({ playerCount }) => {
   console.log(`✅ game:started con ${playerCount} jugadores.`);
 });
 
-screen.on("round:begin", ({ number, zoneRadius, arenaRadius, aliveCount }) => {
+screen.on("round:begin", ({ number, zone, arena, aliveCount }) => {
   sawRoundBeginOnScreen = true;
   if (number === 1) {
-    firstZoneRadius = zoneRadius;
-    arenaRadiusSeen = arenaRadius;
-    console.log(`✅ round:begin #${number} visto por la pantalla — zoneRadius=${zoneRadius}, aliveCount=${aliveCount}`);
+    firstZoneHalfHeight = zone.halfHeight;
+    arenaSeen = arena;
+    console.log(`✅ round:begin #${number} visto por la pantalla — zone.halfHeight=${zone.halfHeight}, aliveCount=${aliveCount}`);
   }
 });
 
 let resolvedCount = 0;
 let sawSecondRoundBegin = false;
 
-screen.on("round:resolved", ({ number, order, zoneRadiusBefore, zoneRadiusAfter, winner }) => {
+screen.on("round:resolved", ({ number, order, zoneBefore, zoneAfter, winner }) => {
   resolvedCount++;
-  console.log(`✅ round:resolved #${number} — order.length=${order.length}, zoneRadiusBefore=${zoneRadiusBefore}, zoneRadiusAfter=${zoneRadiusAfter}, winner=${winner}`);
+  console.log(`✅ round:resolved #${number} — order.length=${order.length}, zoneBefore.halfHeight=${zoneBefore.halfHeight}, zoneAfter.halfHeight=${zoneAfter.halfHeight}, winner=${winner}`);
 
   const aliveBeforeThisRound = players.filter((pl) => !pl.eliminated).length;
   const orderSizeOk = order.length > 0 && order.length <= aliveBeforeThisRound;
   console.log(`Chequeo: el order trae un evento por cada jugador que seguía vivo al empezar la ronda: ${orderSizeOk ? "OK" : "❌ MAL"}`);
 
-  const shrankOk = zoneRadiusAfter <= zoneRadiusBefore;
-  console.log(`Chequeo: la zona no crece entre rondas: ${shrankOk ? "OK" : "❌ MAL"}`);
+  const shrankOk = zoneAfter.halfHeight <= zoneBefore.halfHeight && zoneAfter.halfWidth <= zoneBefore.halfWidth;
+  console.log(`Chequeo: la zona no crece entre rondas (ningún eje): ${shrankOk ? "OK" : "❌ MAL"}`);
 
   order.forEach((e) => {
     if (e.fired && e.hitId) {
@@ -103,7 +103,7 @@ screen.on("round:resolved", ({ number, order, zoneRadiusBefore, zoneRadiusAfter,
   if (resolvedCount === 1) {
     if (winner) {
       console.log("ℹ️ La primera ronda ya dio ganador (spawn al azar) — no hay una segunda ronda que esperar.");
-      return finishIfPossible(zoneRadiusAfter, orderSizeOk, shrankOk);
+      return finishIfPossible(zoneAfter, orderSizeOk, shrankOk);
     }
     // Todavía sigue la partida: la pantalla corta la revelación a mano en
     // vez de esperar el REVEAL_MS completo — mismo patrón que day:advance
@@ -112,7 +112,7 @@ screen.on("round:resolved", ({ number, order, zoneRadiusBefore, zoneRadiusAfter,
       if (!res.ok) fail("round:advance falló: " + res.error);
     });
   } else {
-    finishIfPossible(zoneRadiusAfter, orderSizeOk, shrankOk);
+    finishIfPossible(zoneAfter, orderSizeOk, shrankOk);
   }
 });
 
@@ -120,15 +120,15 @@ screen.on("round:begin", ({ number }) => {
   if (number === 2) sawSecondRoundBegin = true;
 });
 
-function finishIfPossible(lastZoneRadius, orderSizeOk, shrankOk) {
+function finishIfPossible(lastZone, orderSizeOk, shrankOk) {
   const beginOk = sawRoundBeginOnScreen;
   const yourTurnOk = yourTurnCount >= NAMES.length; // al menos una vez por jugador en la ronda 1
-  const arenaOk = typeof arenaRadiusSeen === "number" && arenaRadiusSeen > 0;
-  const zoneChangedOrFloored = lastZoneRadius <= firstZoneRadius;
+  const arenaOk = Boolean(arenaSeen) && arenaSeen.halfWidth > 0 && arenaSeen.halfHeight > 0;
+  const zoneChangedOrFloored = lastZone.halfHeight <= firstZoneHalfHeight;
 
   console.log(`Chequeo: la pantalla vio round:begin: ${beginOk ? "OK" : "❌ MAL"}`);
   console.log(`Chequeo: cada jugador recibió round:yourTurn: ${yourTurnOk ? "OK" : "❌ MAL"}`);
-  console.log(`Chequeo: round:begin trajo un arenaRadius fijo: ${arenaOk ? "OK" : "❌ MAL"}`);
+  console.log(`Chequeo: round:begin trajo un arena fijo: ${arenaOk ? "OK" : "❌ MAL"}`);
   console.log(`Chequeo: la zona se achicó (o quedó igual si ya estaba en el piso): ${zoneChangedOrFloored ? "OK" : "❌ MAL"}`);
   console.log(`Chequeo: la ronda siguiente arrancó (round:begin #2) o la partida ya terminó: ${sawSecondRoundBegin || resolvedCount === 1 ? "OK" : "❌ MAL"}`);
 

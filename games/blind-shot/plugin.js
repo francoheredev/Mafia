@@ -13,8 +13,9 @@ const { pushHistory, publicPlayerList } = require("../../platform/core/rooms");
 const {
   MIN_PLAYERS,
   MAX_PLAYERS,
-  ARENA_RADIUS,
-  clampToRadius,
+  ARENA_HALF_WIDTH,
+  ARENA_HALF_HEIGHT,
+  clampToZone,
   spawnPositions,
   createGameState,
   startMovementPhase,
@@ -64,7 +65,7 @@ const blindShotSocketHandlers = {
     Object.keys(room.players).forEach((id) => {
       room.players[id].alive = connectedIds.includes(id);
     });
-    room.gameState.zoneRadius = ARENA_RADIUS;
+    room.gameState.zone = { halfWidth: ARENA_HALF_WIDTH, halfHeight: ARENA_HALF_HEIGHT };
     room.gameState.roundNumber = 0;
     room.started = true;
     room.history = [];
@@ -107,9 +108,9 @@ const blindShotSocketHandlers = {
       return;
     }
 
-    // El servidor re-clampea al zoneRadius vigente — nunca confía en el
-    // clamp que ya hizo el cliente en vivo.
-    const clamped = clampToRadius(x, y, room.gameState.zoneRadius);
+    // El servidor re-clampea a la zona vigente — nunca confía en el clamp
+    // que ya hizo el cliente en vivo.
+    const clamped = clampToZone(x, y, room.gameState.zone.halfWidth, room.gameState.zone.halfHeight);
     p.submission = {
       x: clamped.x,
       y: clamped.y,
@@ -157,7 +158,7 @@ const blindShotSocketHandlers = {
 
     room.started = false;
     room.phase = "lobby";
-    room.gameState.zoneRadius = ARENA_RADIUS;
+    room.gameState.zone = { halfWidth: ARENA_HALF_WIDTH, halfHeight: ARENA_HALF_HEIGHT };
     room.gameState.roundNumber = 0;
     room.gameState.round = null;
     room.gameState.players = {};

@@ -15,7 +15,9 @@
 }
 
 /* ---- Arena (pantalla): el <canvas> ocupa el centro, con el contador de
-   vivos arriba ---- */
+   vivos arriba. La zona es un rectángulo (proporción de pantalla de
+   celular en vertical, 9:16 — ver ZONE_ASPECT en games/blind-shot/logic.js
+   y CANVAS_ASPECT en player.js), no un círculo. ---- */
 .arena-wrap {
   width: 100%;
   max-width: 640px;
@@ -27,27 +29,30 @@
   margin: 4px 0 12px;
 }
 #arenaCanvas {
-  width: 100%;
-  max-width: 560px;
-  aspect-ratio: 1 / 1;
+  width: auto;
+  height: min(70vh, 620px);
+  max-width: 100%;
+  aspect-ratio: 9 / 16;
   background: #0c0f18;
-  border-radius: 50%;
+  border-radius: 12px;
   box-shadow: 0 0 0 2px #262f45, inset 0 0 40px rgba(0, 0, 0, 0.6);
 }
 
 /* ---- Control del celular: mini-mapa + joystick/puntería, un único
    <canvas> con touch-action:none para que el navegador no interprete los
-   toques como scroll/zoom (ver public/games/blind-shot/player.js). ---- */
+   toques como scroll/zoom (ver public/games/blind-shot/player.js). La
+   zona ocupa el rectángulo completo del canvas — "toda la pantalla del
+   celular", no un círculo inscripto. ---- */
 .control-wrap {
   width: 100%;
-  max-width: 360px;
+  max-width: 420px;
   text-align: center;
 }
 #controlCanvas {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 9 / 16;
   background: #0c0f18;
-  border-radius: 50%;
+  border-radius: 12px;
   box-shadow: 0 0 0 2px #262f45, inset 0 0 30px rgba(0, 0, 0, 0.6);
   touch-action: none;
   -webkit-user-select: none;

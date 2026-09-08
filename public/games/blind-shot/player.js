@@ -190,39 +190,75 @@ socket.on("round:resolved", ({ order, winner }) => {
 
 const JOYSTICK_MAX_PX = 60; // tope de desplazamiento visual del joystick
 const MOVE_SPEED = 220; // unidades de mundo por segundo, a fondo de joystick
+const PLAYER_MARKER_PX = 34; // tamaño de fuente del ícono propio en el mini-mapa
+const LASER_COLOR = "#ff3b3b"; // rojo puro, a pedido — antes era un coral #e07a5f
+
+// La zona es un rectángulo (proporción de pantalla de celular en vertical,
+// igual que ZONE_ASPECT en games/blind-shot/logic.js — no hay forma de
+// compartir el módulo del server con el cliente en este proyecto sin
+// bundler, así que se re-declara acá el mismo valor).
+const CANVAS_ASPECT = 9 / 16;
 
 let canvas = null;
 let ctx = null;
-let canvasSize = 0; // px, cuadrado
+let canvasWidth = 0;
+let canvasHeight = 0;
 
-// Estado de la ronda en curso.
-let zoneRadius = 1000;
+// Estado de la ronda en curso — la zona ahora es un rectángulo
+// (halfWidth/halfHeight), no un radio.
+let zoneHalfWidth = 1000 * CANVAS_ASPECT;
+let zoneHalfHeight = 1000;
 let simX = 0;
 let simY = 0;
 let deadline = 0;
 let submitted = false;
 let roundActive = false;
 
+// Ícono propio (el mismo emoji que se asignó al entrar a la sala) — se
+// dibuja en el mini-mapa en vez de un punto liso. Ver Platform.session en
+// public/platform/platform.js: ya se usa para el texto del lobby, acá se
+// reutiliza para canvas.
+const myIcon = Platform.session.load(GAME_ID).icon || "🙂";
+
 // Estado de los dos dedos. El primero en tocar (mientras siga activo)
 // controla el joystick; el siguiente pointerId distinto controla la
 // puntería. Soltar el dedo de puntería NO borra aimAngle — se mantiene
 // "vivo" hasta que termine la ronda (alimenta la cadena de respaldo del
-// servidor si nunca se vuelve a tocar).
+// servidor si nunca se vuelve a tocar). aimAngle arranca en 0 (no null) y
+// NUNCA se resetea entre rondas — así el láser de puntería ya se ve desde
+// el arranque de cada ronda, apuntando a la última dirección conocida (o
+// "a la derecha" en la primerísima ronda de la partida), en vez de
+// aparecer recién cuando se toca con el segundo dedo.
 let joystickPointerId = null;
 let joystickOrigin = null; // {x,y} en px de canvas — base FLOTANTE, no fija
 let joystickVec = { x: 0, y: 0 }; // normalizado, -1..1
 let aimPointerId = null;
-let aimAngle = null; // null hasta que se toca por primera vez esta ronda
+let aimAngle = 0;
 
 let rafHandle = null;
 let lastFrameTs = null;
 
 function worldToCanvas(wx, wy) {
-  const scale = (canvasSize / 2) / zoneRadius;
+  const scale = canvasHeight / (2 * zoneHalfHeight);
   return {
-    x: canvasSize / 2 + wx * scale,
-    y: canvasSize / 2 - wy * scale, // mini-mapa espejado: +y de mundo sube en pantalla
+    x: canvasWidth / 2 + wx * scale,
+    y: canvasHeight / 2 - wy * scale, // mini-mapa espejado: +y de mundo sube en pantalla
   };
+}
+
+// Distancia (en unidades de mundo) desde (x0,y0) hasta el borde del
+// rectángulo de la zona vigente, siguiendo la dirección `angle` — método
+// del "slab" reducido a un punto que ya está adentro del rectángulo:
+// mínimo t positivo que hace tocar cualquiera de los 4 bordes.
+function distanceToZoneEdge(x0, y0, angle, halfWidth, halfHeight) {
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  let t = Infinity;
+  if (dx > 0) t = Math.min(t, (halfWidth - x0) / dx);
+  else if (dx < 0) t = Math.min(t, (-halfWidth - x0) / dx);
+  if (dy > 0) t = Math.min(t, (halfHeight - y0) / dy);
+  else if (dy < 0) t = Math.min(t, (-halfHeight - y0) / dy);
+  return Number.isFinite(t) ? t : 0;
 }
 
 function setupCanvasOnce() {
@@ -230,13 +266,14 @@ function setupCanvasOnce() {
   const waitingRoom = document.getElementById("waitingRoom");
   waitingRoom.innerHTML = `
     <div class="control-wrap">
-      <canvas id="controlCanvas" width="600" height="600"></canvas>
+      <canvas id="controlCanvas" width="450" height="800"></canvas>
       <p class="control-hint" id="controlHint">Un dedo: moverte · Segundo dedo: apuntar</p>
     </div>
   `;
   canvas = document.getElementById("controlCanvas");
   ctx = canvas.getContext("2d");
-  canvasSize = canvas.width;
+  canvasWidth = canvas.width;
+  canvasHeight = canvas.height;
   wireCanvasPointerEvents();
 }
 
@@ -310,35 +347,35 @@ function wireCanvasPointerEvents() {
 
 function drawFrame() {
   if (!ctx) return;
-  ctx.clearRect(0, 0, canvasSize, canvasSize);
+  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
-  // Zona vigente (el clamp del movimiento coincide exactamente con este
-  // círculo).
-  ctx.beginPath();
-  ctx.arc(canvasSize / 2, canvasSize / 2, canvasSize / 2 - 2, 0, Math.PI * 2);
+  // Zona vigente: ahora un rectángulo (toda la pantalla del celular, no un
+  // círculo) — el clamp del movimiento coincide exactamente con este borde.
   ctx.strokeStyle = "#333c52";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(1.5, 1.5, canvasWidth - 3, canvasHeight - 3);
+
+  const self = worldToCanvas(simX, simY);
+
+  // Láser de puntería: siempre visible (aimAngle ya no es null nunca, ver
+  // declaración arriba), rojo, largo — llega hasta el borde de la zona
+  // vigente en la dirección apuntada (no un largo fijo arbitrario).
+  const edgeDist = distanceToZoneEdge(simX, simY, aimAngle, zoneHalfWidth, zoneHalfHeight);
+  const scale = canvasHeight / (2 * zoneHalfHeight);
+  const tx = self.x + Math.cos(aimAngle) * edgeDist * scale;
+  const ty = self.y - Math.sin(aimAngle) * edgeDist * scale; // flip
+  ctx.beginPath();
+  ctx.moveTo(self.x, self.y);
+  ctx.lineTo(tx, ty);
+  ctx.strokeStyle = LASER_COLOR;
   ctx.lineWidth = 3;
   ctx.stroke();
 
-  // Jugador.
-  const self = worldToCanvas(simX, simY);
-  ctx.beginPath();
-  ctx.arc(self.x, self.y, 10, 0, Math.PI * 2);
-  ctx.fillStyle = "#e8c07d";
-  ctx.fill();
-
-  // Dirección de puntería (indicador corto, no a escala real de rango).
-  if (aimAngle !== null) {
-    const len = 46;
-    const tx = self.x + Math.cos(aimAngle) * len;
-    const ty = self.y - Math.sin(aimAngle) * len; // flip
-    ctx.beginPath();
-    ctx.moveTo(self.x, self.y);
-    ctx.lineTo(tx, ty);
-    ctx.strokeStyle = "#e07a5f";
-    ctx.lineWidth = 4;
-    ctx.stroke();
-  }
+  // Jugador: el emoji que se le asignó al entrar, no un punto liso.
+  ctx.font = `${PLAYER_MARKER_PX}px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(myIcon, self.x, self.y);
 
   // Joystick flotante (solo mientras el dedo está activo).
   if (joystickOrigin) {
@@ -366,12 +403,9 @@ function controlLoop(ts) {
     if (joystickPointerId !== null) {
       simX += joystickVec.x * MOVE_SPEED * dt;
       simY += joystickVec.y * MOVE_SPEED * dt;
-      const dist = Math.hypot(simX, simY);
-      if (dist > zoneRadius) {
-        const scale = zoneRadius / dist;
-        simX *= scale;
-        simY *= scale;
-      }
+      // Clamp por eje (rectángulo) — más simple que el círculo de antes.
+      simX = Math.max(-zoneHalfWidth, Math.min(zoneHalfWidth, simX));
+      simY = Math.max(-zoneHalfHeight, Math.min(zoneHalfHeight, simY));
     }
 
     // Chequea el deadline cuadro a cuadro (nunca hay tick del servidor al
@@ -414,15 +448,18 @@ function stopControlLoop() {
 //     de esta ronda. alreadySubmitted (solo presente en un reenvío por
 //     reconnect) deja al jugador en modo "esperando" sin poder volver a
 //     mandar. ---
-socket.on("round:yourTurn", ({ zoneRadius: zr, startX, startY, deadline: dl, alreadySubmitted }) => {
+socket.on("round:yourTurn", ({ zone, startX, startY, deadline: dl, alreadySubmitted }) => {
   if (amIDead) return;
   vibrate(VIBRATE.roundStart);
 
-  zoneRadius = zr;
+  zoneHalfWidth = zone.halfWidth;
+  zoneHalfHeight = zone.halfHeight;
   simX = startX;
   simY = startY;
   deadline = dl;
-  aimAngle = null;
+  // aimAngle NO se reinicia acá a propósito: se mantiene entre rondas (el
+  // láser ya arranca visible apuntando a la última dirección conocida, o a
+  // su valor por defecto 0 en la primerísima ronda — ver declaración).
   submitted = Boolean(alreadySubmitted);
 
   setupCanvasOnce();
