@@ -246,77 +246,149 @@ socket.on("round:begin", ({ number, zone, arena, aliveCount }) => {
   if (title) title.textContent = `🎯 Ronda ${number}`;
 });
 
-// --- Animación de revelación: recorre `order` con una cadena de
-//     setTimeout (mismo patrón que playNarrative de Mafia, reimplementado
-//     liviano acá porque es UI de pantalla, no lógica compartida). ---
-const REVEAL_STEP_MS = 1400;
+// --- Animación de revelación: a pedido del usuario tras probarlo, TODAS
+//     las posiciones se muestran de una — ya no se revela un tirador por
+//     paso. Lo que sigue avanzando en secuencia (misma cadencia que antes,
+//     vía setTimeout) es el ORDEN de los disparos: en cada paso, el ícono
+//     de quien tira en ese momento hace un destello (pulso de opacidad) y
+//     se dibuja su láser; si pega, el objetivo pasa a semi-transparente
+//     desde ese momento (queda "marcado" como eliminado en el tablero).
+//     El dibujo en sí corre en un loop de requestAnimationFrame continuo
+//     (no un draw por paso) para que el destello se vea animado y no como
+//     un cambio brusco de opacidad. ---
+const REVEAL_STEP_MS = 1100; // cadencia entre disparo y disparo
+const FLASH_MS = 500; // duración del destello de cada disparo
+const ELIMINATED_ALPHA = 0.3;
 
-function drawRevealStep(zone, arena, event) {
-  arenaCtx.clearRect(0, 0, arenaWidth, arenaHeight);
+let revealZone = null;
+let revealArena = null;
+let revealPlayers = {}; // id -> { x, y, icon, name, eliminated }
+let activeShot = null; // { shooterId, fired, angle, hitId, at, to, startTs } | null
+let revealRafHandle = null;
 
-  drawArenaRect(arena.halfWidth, arena.halfHeight, "#1c2233", 2);
-  drawArenaRect(zone.halfWidth, zone.halfHeight, "#e8c07d", 3);
+function stopRevealAnimation() {
+  if (revealRafHandle) cancelAnimationFrame(revealRafHandle);
+  revealRafHandle = null;
+}
 
-  const shooterName = rosterById[event.shooterId]?.name || "?";
-  const shooterIcon = rosterById[event.shooterId]?.icon || "❔";
-  const pos = worldToArenaCanvas(event.at.x, event.at.y);
+// order trae un evento por cada jugador que seguía vivo al EMPEZAR la
+// ronda, con su posición final (`at`) — hayan llegado a disparar o no
+// (ver resolveRoundWithOrder en games/blind-shot/logic.js) — así que
+// alcanza para reconstruir el tablero completo de una sola vez.
+function buildRevealPlayers(order) {
+  const players = {};
+  order.forEach((e) => {
+    players[e.shooterId] = {
+      x: e.at.x,
+      y: e.at.y,
+      icon: rosterById[e.shooterId]?.icon || "❔",
+      name: rosterById[e.shooterId]?.name || "?",
+      eliminated: false,
+    };
+  });
+  return players;
+}
 
-  if (event.fired && event.angle !== undefined) {
-    const to = event.to ? worldToArenaCanvas(event.to.x, event.to.y) : null;
-    let endX, endY;
-    if (to) {
-      endX = to.x;
-      endY = to.y;
-    } else {
-      // Sin objetivo: el láser llega hasta el borde del arena completo
-      // (no la zona vigente, más chica) — mismo criterio "largo" que el
-      // láser del celular, pero referenciado al arena fijo, igual que
-      // antes usaba `full` en vez de la zona.
-      const len = distanceToRectEdge(event.at.x, event.at.y, event.angle, arena.halfWidth, arena.halfHeight);
-      endX = pos.x + Math.cos(event.angle) * len * arenaScale;
-      endY = pos.y - Math.sin(event.angle) * len * arenaScale;
-    }
-    arenaCtx.beginPath();
-    arenaCtx.moveTo(pos.x, pos.y);
-    arenaCtx.lineTo(endX, endY);
-    arenaCtx.strokeStyle = event.hitId ? "#ff3b3b" : "rgba(232, 192, 125, 0.5)";
-    arenaCtx.lineWidth = event.hitId ? 4 : 2;
-    arenaCtx.stroke();
-
-    if (event.hitId) {
-      arenaCtx.beginPath();
-      arenaCtx.arc(endX, endY, ARENA_HIT_RING_PX, 0, Math.PI * 2);
-      arenaCtx.strokeStyle = "#ff3b3b";
-      arenaCtx.lineWidth = 3;
-      arenaCtx.stroke();
-    }
+function drawShotLine(shot) {
+  const from = worldToArenaCanvas(shot.at.x, shot.at.y);
+  let to;
+  if (shot.to) {
+    to = worldToArenaCanvas(shot.to.x, shot.to.y);
+  } else {
+    // Sin objetivo: el láser llega hasta el borde del arena completo (no
+    // la zona vigente, más chica) — mismo criterio "largo" que el láser
+    // del celular, pero referenciado al arena fijo.
+    const len = distanceToRectEdge(shot.at.x, shot.at.y, shot.angle, revealArena.halfWidth, revealArena.halfHeight);
+    to = {
+      x: from.x + Math.cos(shot.angle) * len * arenaScale,
+      y: from.y - Math.sin(shot.angle) * len * arenaScale,
+    };
   }
+  arenaCtx.beginPath();
+  arenaCtx.moveTo(from.x, from.y);
+  arenaCtx.lineTo(to.x, to.y);
+  arenaCtx.strokeStyle = shot.hitId ? "#ff3b3b" : "rgba(232, 192, 125, 0.5)";
+  arenaCtx.lineWidth = shot.hitId ? 4 : 2;
+  arenaCtx.stroke();
 
-  // El tirador de este paso: su propio ícono, más grande que antes.
-  arenaCtx.font = `${ARENA_MARKER_PX}px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
-  arenaCtx.textAlign = "center";
-  arenaCtx.textBaseline = "middle";
-  arenaCtx.fillText(shooterIcon, pos.x, pos.y);
-
-  const stats = document.getElementById("arenaStats");
-  if (stats) {
-    const line = !event.fired
-      ? `${shooterIcon} ${shooterName} ya estaba eliminado/a — su disparo no salió.`
-      : event.hitId
-      ? `${shooterIcon} ${shooterName} le dio a ${rosterById[event.hitId]?.icon || "❔"} ${rosterById[event.hitId]?.name || "?"}.`
-      : `${shooterIcon} ${shooterName} disparó... y erró.`;
-    stats.textContent = line;
+  if (shot.hitId) {
+    arenaCtx.beginPath();
+    arenaCtx.arc(to.x, to.y, ARENA_HIT_RING_PX, 0, Math.PI * 2);
+    arenaCtx.strokeStyle = "#ff3b3b";
+    arenaCtx.lineWidth = 3;
+    arenaCtx.stroke();
   }
 }
 
+function drawRevealFrame(now) {
+  arenaCtx.clearRect(0, 0, arenaWidth, arenaHeight);
+  drawArenaRect(revealArena.halfWidth, revealArena.halfHeight, "#1c2233", 2);
+  drawArenaRect(revealZone.halfWidth, revealZone.halfHeight, "#e8c07d", 3);
+
+  // Destello del disparo activo: dos pulsos rápidos de opacidad que
+  // convergen a opaco al final — más "flash de cámara" que un simple
+  // fade. Se dibuja antes de los íconos para que el láser quede detrás.
+  let flashAlpha = 1;
+  if (activeShot) {
+    const t = Math.min((now - activeShot.startTs) / FLASH_MS, 1);
+    flashAlpha = 0.3 + 0.7 * (0.5 - 0.5 * Math.cos(t * Math.PI * 4));
+    if (activeShot.fired) drawShotLine(activeShot);
+  }
+
+  arenaCtx.font = `${ARENA_MARKER_PX}px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
+  arenaCtx.textAlign = "center";
+  arenaCtx.textBaseline = "middle";
+  Object.entries(revealPlayers).forEach(([id, p]) => {
+    const pos = worldToArenaCanvas(p.x, p.y);
+    let alpha = p.eliminated ? ELIMINATED_ALPHA : 1;
+    if (activeShot && activeShot.shooterId === id && !p.eliminated) alpha = flashAlpha;
+    arenaCtx.globalAlpha = alpha;
+    arenaCtx.fillText(p.icon, pos.x, pos.y);
+  });
+  arenaCtx.globalAlpha = 1;
+
+  revealRafHandle = requestAnimationFrame(drawRevealFrame);
+}
+
 function playReveal(zoneBefore, order, onDone) {
+  revealZone = zoneBefore;
+  revealArena = arenaCache;
+  revealPlayers = buildRevealPlayers(order);
+  activeShot = null;
+  stopRevealAnimation();
+  revealRafHandle = requestAnimationFrame(drawRevealFrame);
+
   let i = 0;
   function step() {
     if (i >= order.length) {
+      stopRevealAnimation();
       onDone();
       return;
     }
-    drawRevealStep(zoneBefore, arenaCache, order[i]);
+    const event = order[i];
+    activeShot = {
+      shooterId: event.shooterId,
+      fired: event.fired,
+      angle: event.angle,
+      hitId: event.hitId,
+      at: event.at,
+      to: event.to,
+      startTs: performance.now(),
+    };
+    if (event.hitId && revealPlayers[event.hitId]) revealPlayers[event.hitId].eliminated = true;
+
+    const shooterName = rosterById[event.shooterId]?.name || "?";
+    const shooterIcon = rosterById[event.shooterId]?.icon || "❔";
+    const stats = document.getElementById("arenaStats");
+    if (stats) {
+      const line = !event.fired
+        ? `${shooterIcon} ${shooterName} ya estaba eliminado/a — su disparo no salió.`
+        : event.hitId
+        ? `${shooterIcon} ${shooterName} le dio a ${rosterById[event.hitId]?.icon || "❔"} ${rosterById[event.hitId]?.name || "?"}.`
+        : `${shooterIcon} ${shooterName} disparó... y erró.`;
+      stats.textContent = line;
+    }
+
     i++;
     narrativeTimer = setTimeout(step, REVEAL_STEP_MS);
   }
@@ -381,10 +453,12 @@ function renderGameOver(winner) {
 // curso): no es un "momento" de la animación normal, va directo al
 // resultado final.
 socket.on("game:over", ({ winner }) => {
+  stopRevealAnimation();
   renderGameOver(winner);
 });
 
 socket.on("game:restarted", () => {
+  stopRevealAnimation();
   arenaCanvas = null;
   arenaCtx = null;
   arenaScale = 0;
