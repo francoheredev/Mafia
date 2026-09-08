@@ -19,10 +19,11 @@ npm start
 
 Con eso el servidor queda escuchando en `http://localhost:3000`. Abrí:
 
-- **Pantalla:** `http://localhost:3000/screen.html` (esto es lo que abrirías en la PC/TV)
-- **Celular:** escaneá el QR que aparece en la pantalla, o abrí `http://localhost:3000/player.html` a mano.
+- **Hub:** `http://localhost:3000/` — selector de juego (hoy solo está La Mafia; a futuro, cada juego nuevo aparece acá solo).
+- **Pantalla:** `http://localhost:3000/mafia/screen` (esto es lo que abrirías en la PC/TV) — o entrá desde el hub.
+- **Celular:** escaneá el QR que aparece en la pantalla, o abrí `http://localhost:3000/mafia/player` a mano.
 
-Para probarlo con tu celular de verdad (no solo en la misma compu), necesitás que el celular esté en la **misma red WiFi** que la compu, y usar la IP local de la compu en vez de `localhost` (ej. `http://192.168.0.15:3000/player.html`). Podés ver tu IP local con `ipconfig` (Windows) o `ifconfig`/`ip a` (Mac/Linux).
+Para probarlo con tu celular de verdad (no solo en la misma compu), necesitás que el celular esté en la **misma red WiFi** que la compu, y usar la IP local de la compu en vez de `localhost` (ej. `http://192.168.0.15:3000/mafia/player`). Podés ver tu IP local con `ipconfig` (Windows) o `ifconfig`/`ip a` (Mac/Linux).
 
 ## Test automático
 
@@ -78,19 +79,28 @@ Si ves "🎉 ..." al final de cada uno, está todo bien.
 
 ## Estructura
 
+El proyecto se reorganizó en una capa de **plataforma** (genérica, sin saber
+nada de Mafia — lobby, reconexión, kick, chat, historial, hub) y **La Mafia**
+como el primer juego montado sobre ella (`games/mafia/`), para que sumar un
+juego nuevo más adelante sea agregar una carpeta, no tocar `platform/`.
+
 ```
 la-mafia-lobby/
-├── server.js          # servidor Node + Socket.IO (toda la lógica de sala)
-├── roles.js            # catálogo de roles, escalado y reparto
-├── test-flow.js         # test automático del lobby (pantalla + 1 celular)
-├── test-roles.js        # test automático del reparto de roles (6 jugadores)
-├── test-night.js        # test automático del ciclo Noche (10 jugadores)
-├── test-day.js           # test automático del ciclo Día (10 jugadores)
-├── test-win-ciudad.js     # test automático: victoria de la Ciudad (6 jugadores)
-├── test-win-mafia.js       # test automático: victoria de la Mafia (6 jugadores)
-├── package.json
-└── public/
-    ├── screen.html/js  # pantalla compartida
-    ├── player.html/js  # celular del jugador
-    └── style.css       # estilos compartidos
+├── server.js              # bootstrap: Express, estáticos, require('./games'), listen
+├── run-tests.js            # spawnea el server y corre tests/platform/ + tests/mafia/
+├── platform/
+│   ├── core/                # rooms.js, registry.js, connection.js (genérico)
+│   └── routes/               # hub.js, game-pages.js
+├── games/
+│   ├── index.js               # registra cada juego (único archivo que crece)
+│   ├── mafia/                 # plugin.js, logic.js, roles.js, rules.js
+│   └── __test__/               # plugin trivial, solo bajo NODE_ENV=test
+├── public/
+│   ├── hub/                     # selector de juego
+│   ├── platform/                 # window.Platform: roster/chat/history/rules/connect
+│   └── games/mafia/               # screen.html/js, player.html/js, mafia.css
+├── tests/
+│   ├── platform/                   # lobby/reconexión/kick/chat, contra el plugin trivial
+│   └── mafia/                       # los tests de juego completo (roles, noche, día, victorias)
+└── package.json
 ```
