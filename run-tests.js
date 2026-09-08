@@ -2,24 +2,38 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-// Levanta el server una sola vez, corre todos los test-*.js de la raíz en
-// secuencia contra él, y lo apaga al final — así no hace falta arrancar
-// "node server.js" a mano antes de cada test suelto.
+// Levanta el server una sola vez (con NODE_ENV=test, para que el plugin
+// trivial de games/__test__/ se registre y tests/platform/*.js pueda
+// correr sin depender de Mafia), corre todos los test-*.js de
+// tests/platform/ y tests/mafia/ en secuencia contra él, y lo apaga al
+// final — así no hace falta arrancar "node server.js" a mano antes de cada
+// test suelto.
+//
+// Por default recorre ambos directorios; se le puede pasar uno o más
+// directorios como argumentos (ej. "node run-tests.js tests/platform") para
+// correr solo un subconjunto — así es como funciona el script "test:platform".
 
 const ROOT = __dirname;
 const SERVER_READY_PATTERN = /escuchando en/i;
 const SERVER_READY_TIMEOUT_MS = 10000;
+const DEFAULT_TEST_DIRS = ["tests/platform", "tests/mafia"];
 
-function findTestFiles() {
+function findTestFiles(dir) {
+  const abs = path.join(ROOT, dir);
+  if (!fs.existsSync(abs)) return [];
   return fs
-    .readdirSync(ROOT)
+    .readdirSync(abs)
     .filter((f) => /^test-.*\.js$/.test(f))
-    .sort();
+    .sort()
+    .map((f) => path.join(dir, f));
 }
 
 function startServer() {
   return new Promise((resolve, reject) => {
-    const server = spawn(process.execPath, ["server.js"], { cwd: ROOT });
+    const server = spawn(process.execPath, ["server.js"], {
+      cwd: ROOT,
+      env: { ...process.env, NODE_ENV: "test" },
+    });
     let ready = false;
     const timer = setTimeout(() => {
       if (!ready) reject(new Error("El server no arrancó a tiempo."));
@@ -53,8 +67,9 @@ function runTest(file) {
 }
 
 async function main() {
-  const testFiles = findTestFiles();
-  console.log(`Encontrados ${testFiles.length} tests: ${testFiles.join(", ")}`);
+  const dirs = process.argv.slice(2).length ? process.argv.slice(2) : DEFAULT_TEST_DIRS;
+  const testFiles = dirs.flatMap(findTestFiles);
+  console.log(`Encontrados ${testFiles.length} tests en [${dirs.join(", ")}]: ${testFiles.join(", ")}`);
 
   const server = await startServer();
   console.log("✅ Server listo.\n");

@@ -39,7 +39,7 @@ function cleanup(code) {
   process.exit(code);
 }
 
-screen.on("connect", () => screen.emit("screen:create"));
+screen.on("connect", () => screen.emit("screen:create", { gameId: "mafia" }));
 screen.on("history:entry", (entry) => liveEntries.push(entry));
 
 screen.on("screen:created", ({ code }) => {

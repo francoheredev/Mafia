@@ -56,7 +56,7 @@ function setupCalmNight(players, byRoleId, fail) {
 }
 
 function joinAndStart(screen, players, onAllAssigned) {
-  screen.on("connect", () => screen.emit("screen:create"));
+  screen.on("connect", () => screen.emit("screen:create", { gameId: "mafia" }));
   screen.on("screen:created", ({ code }) => {
     let joinedCount = 0;
     let assignedCount = 0;

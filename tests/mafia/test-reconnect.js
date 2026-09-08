@@ -23,7 +23,7 @@ function runPhaseA(onDone) {
     screen.close();
   }
 
-  screen.on("connect", () => screen.emit("screen:create"));
+  screen.on("connect", () => screen.emit("screen:create", { gameId: "mafia" }));
   screen.on("screen:created", ({ code }) => {
     roomCode = code;
     console.log("✅ [Fase A] Sala creada:", roomCode);
@@ -89,7 +89,7 @@ function runPhaseB() {
     else pendingActions.push(fn);
   }
 
-  screen.on("connect", () => screen.emit("screen:create"));
+  screen.on("connect", () => screen.emit("screen:create", { gameId: "mafia" }));
   screen.on("screen:created", ({ code }) => {
     console.log("\n✅ [Fase B] Sala creada:", code);
     NAMES.forEach((name) => {

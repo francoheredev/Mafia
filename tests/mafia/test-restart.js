@@ -14,7 +14,7 @@ function fail(msg) {
 
 function runPhaseA(onDone) {
   const screen = io("http://localhost:3000");
-  screen.on("connect", () => screen.emit("screen:create"));
+  screen.on("connect", () => screen.emit("screen:create", { gameId: "mafia" }));
   screen.on("screen:created", () => {
     screen.emit("game:restart", null, (res) => {
       const rejected = res.ok === false;
@@ -129,7 +129,7 @@ function runPhaseB() {
     });
   }
 
-  screen.on("connect", () => screen.emit("screen:create"));
+  screen.on("connect", () => screen.emit("screen:create", { gameId: "mafia" }));
   screen.on("screen:created", ({ code }) => {
     roomCode = code;
     console.log("\n✅ [Fase B] Sala creada:", roomCode);

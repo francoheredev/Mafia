@@ -4,3 +4,10 @@
 // para sumarlo a la plataforma. Nada bajo platform/ necesita tocarse para
 // agregar un juego más acá.
 require("./mafia/plugin");
+
+// Plugin trivial, solo para que tests/platform/*.js pueda probar la
+// plataforma (lobby, reconexión, kick, chat) sin depender de la lógica de
+// Mafia — nunca se registra fuera de NODE_ENV=test.
+if (process.env.NODE_ENV === "test") {
+  require("./__test__/plugin");
+}

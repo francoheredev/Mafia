@@ -5,7 +5,7 @@ const player = io("http://localhost:3000");
 
 let roomCode = null;
 
-screen.on("connect", () => screen.emit("screen:create"));
+screen.on("connect", () => screen.emit("screen:create", { gameId: "mafia" }));
 
 screen.on("screen:created", ({ code }) => {
   roomCode = code;

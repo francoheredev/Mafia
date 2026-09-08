@@ -1,12 +1,13 @@
 const { io } = require("socket.io-client");
 
 // 6 jugadores (mínimo): 1 Padrino, 1 Mafioso, 1 Detective, 1 Médico, 1
-// Cazador, 1 Bufón. De noche, la Mafia ataca al Detective (no al Cazador,
-// para no disparar su venganza al azar contra el Bufón antes de tiempo) y el
-// Médico "protege" al propio líder de la Mafia a propósito, para no bloquear
-// ese ataque. Al llegar el Día, todos los vivos que no son el Bufón lo votan
-// y lo declaran culpable en el juicio — debería declararse "winner: bufon"
-// apenas se lo ejecuta, sin importar cómo queda el conteo Mafia/Ciudad.
+// Cazador, 1 Bufón (2 mafia vs 4 buenos). Cada Día se fuerza "nadie
+// acusado" (todos se abstienen); cada noche la Mafia mata a un bueno sin
+// que el Médico lo proteja de verdad (protege al propio líder de la Mafia,
+// a propósito, para no salvar a la víctima real) — evitando además elegir
+// al Cazador como víctima, para no disparar su venganza y descontrolar el
+// conteo. Tras 3 muertes buenas (2 mafia vs 1 bueno) debería declararse
+// "winner: mafia".
 const NAMES = ["Fede", "Juli", "Male", "Naza", "Caro", "Tomi"];
 
 const screen = io("http://localhost:3000");
@@ -25,11 +26,23 @@ function cleanup(code) {
   screen.close();
   process.exit(code);
 }
-function bufonEntry() {
-  return players.find((p) => p.role?.roleId === "bufon");
+function aliveMafia() {
+  return players.filter((p) => p.alive && p.role?.team === "mafia");
+}
+function aliveGood() {
+  return players.filter((p) => p.alive && p.role?.team !== "mafia");
+}
+function roleOf(socketId) {
+  return players.find((p) => p.socketId === socketId)?.role;
+}
+function markDead(deaths) {
+  deaths.forEach((d) => {
+    const p = players.find((x) => x.socketId === d.id);
+    if (p) p.alive = false;
+  });
 }
 
-screen.on("connect", () => screen.emit("screen:create"));
+screen.on("connect", () => screen.emit("screen:create", { gameId: "mafia" }));
 
 screen.on("screen:created", ({ code }) => {
   roomCode = code;
@@ -61,23 +74,22 @@ screen.on("screen:created", ({ code }) => {
       entry.socketId = p.id;
       assignedCount++;
       if (assignedCount === NAMES.length) {
-        console.log("✅ Todos los jugadores tienen su rol. Bufón:", bufonEntry()?.name);
+        console.log("✅ Todos los jugadores tienen su rol.");
+        console.log("Mafia:", aliveMafia().map((x) => x.name));
       }
     });
 
-    // --- Noche: la Mafia ataca al Detective; el Médico "protege" al líder
-    //     de la Mafia a propósito, para no bloquear ese ataque real. ---
+    // --- Noche: la Mafia mata a un bueno (no al Cazador) sin protección real ---
     p.on("night:mafiaTurn", ({ isLeader, targets }) => {
       if (!isLeader) return;
-      const victim = targets.find((t) => {
-        const r = players.find((x) => x.socketId === t.id)?.role;
-        return r?.roleId === "detective";
-      });
-      if (!victim) return fail("No encontré al Detective entre los objetivos.");
+      const victim = targets.find((t) => roleOf(t.id)?.roleId !== "cazador") || targets[0];
+      console.log(`✅ Líder de la Mafia (${entry.name}) ataca a ${victim.name}`);
       p.emit("night:action", { role: "mafia", targetId: victim.id }, (res) => {
         if (!res.ok) fail("Mafia no pudo elegir: " + res.error);
       });
 
+      // El Médico "protege" al propio líder de la Mafia a propósito, para
+      // no salvar a la víctima real.
       const medico = players.find((x) => x.role?.roleId === "medico" && x.alive);
       if (medico) {
         if (medico.pendingYourTurn) {
@@ -107,81 +119,82 @@ screen.on("screen:created", ({ code }) => {
       }
     });
 
-    // --- Día: todos votan al Bufón (que se abstiene, no puede votarse a sí
-    //     mismo) y lo declaran culpable en el juicio. ---
+    // --- Día: todos se abstienen, a propósito, para que nadie sea acusado ---
     p.on("day:yourVote", () => {
-      const bufon = bufonEntry();
-      const targetId = bufon && bufon.socketId !== entry.socketId ? bufon.socketId : null;
-      p.emit("day:vote", { targetId }, (res) => {
+      p.emit("day:vote", { targetId: null }, (res) => {
         if (!res.ok) fail("No se pudo votar: " + res.error);
       });
     });
 
     p.on("day:yourVerdict", () => {
-      p.emit("day:verdict", { verdict: "guilty" }, (res) => {
-        if (!res.ok) fail("No se pudo votar el veredicto: " + res.error);
-      });
+      fail("No se esperaba un juicio en este test (nadie debería ser acusado).");
     });
   });
 });
 
 screen.on("night:begin", ({ number }) => {
   console.log(`\n✅ Empezó la noche #${number}`);
-  if (number > 1) fail("No se esperaba una segunda noche en este test.");
 });
 
-screen.on("night:resolved", ({ winner }) => {
-  if (winner) return fail(`No se esperaba un ganador en la noche (llegó: ${winner}).`);
+screen.on("night:resolved", ({ deaths, winner, roster }) => {
+  markDead(deaths);
+  console.log(
+    `Muertes: ${deaths.map((d) => d.name).join(", ") || "ninguna"} — Mafia viva: ${
+      aliveMafia().length
+    }, buenos vivos: ${aliveGood().length}`
+  );
+
+  if (winner) {
+    sawWinner = true;
+    const winnerOk = winner === "mafia";
+    const rosterOk = Array.isArray(roster) && roster.length === NAMES.length;
+
+    console.log(`\nChequeo: ganó la Mafia: ${winnerOk ? "OK" : "❌ MAL"}`);
+    console.log(`Chequeo: vino el roster completo (${roster?.length}/${NAMES.length}): ${rosterOk ? "OK" : "❌ MAL"}`);
+
+    let advancedAgain = false;
+    screen.once("day:discussion", () => {
+      advancedAgain = true;
+    });
+    setTimeout(() => {
+      const stoppedOk = !advancedAgain;
+      console.log(`Chequeo: el servidor frenó el ciclo (no arrancó otro día): ${stoppedOk ? "OK" : "❌ MAL"}`);
+      const allOk = winnerOk && rosterOk && stoppedOk;
+      console.log(allOk ? "\n🎉 Condición de victoria (Mafia) funcionando de punta a punta." : "\n❌ Algo falló.");
+      cleanup(allOk ? 0 : 1);
+    }, 3000);
+    return;
+  }
+
   screen.emit("day:advance", null, (res) => {
     if (!res.ok) fail("No se pudo avanzar del amanecer: " + res.error);
   });
 });
 
 screen.on("day:discussion", () => {
-  console.log("✅ Empezó la discusión — se salta directo a la votación.");
   screen.emit("day:advance", null, (res) => {
     if (!res.ok) fail("No se pudo avanzar de la discusión: " + res.error);
   });
 });
 
 screen.on("day:noAccusation", () => {
-  fail("No se esperaba 'nadie acusado' — todos votan al Bufón.");
-});
-
-screen.on("day:defense", ({ accused }) => {
-  console.log(`✅ Acusado: ${accused.name} (esperado: ${bufonEntry()?.name})`);
-  if (accused.name !== bufonEntry()?.name) fail("El acusado no fue el Bufón.");
+  console.log("✅ Nadie fue acusado (a propósito) — sigue la noche");
   screen.emit("day:advance", null, (res) => {
-    if (!res.ok) fail("No se pudo avanzar de la defensa: " + res.error);
+    if (!res.ok) fail("No se pudo avanzar de 'nadie acusado': " + res.error);
   });
 });
 
-screen.on("day:resolved", ({ executed, accused, winner, roster }) => {
-  sawWinner = Boolean(winner);
-  const winnerOk = winner === "bufon";
-  const executedOk = executed === true && accused.name === bufonEntry()?.name;
-  const rosterOk = Array.isArray(roster) && roster.length === NAMES.length;
-
-  console.log(`\nChequeo: se ejecutó al Bufón: ${executedOk ? "OK" : "❌ MAL"}`);
-  console.log(`Chequeo: ganó el Bufón: ${winnerOk ? "OK" : "❌ MAL"}`);
-  console.log(`Chequeo: vino el roster completo (${roster?.length}/${NAMES.length}): ${rosterOk ? "OK" : "❌ MAL"}`);
-
-  let advancedAgain = false;
-  screen.once("night:begin", () => {
-    advancedAgain = true;
-  });
-  setTimeout(() => {
-    const stoppedOk = !advancedAgain;
-    console.log(`Chequeo: el servidor frenó el ciclo (no arrancó otra noche): ${stoppedOk ? "OK" : "❌ MAL"}`);
-    const allOk = winnerOk && executedOk && rosterOk && stoppedOk;
-    console.log(allOk ? "\n🎉 Condición de victoria (Bufón) funcionando de punta a punta." : "\n❌ Algo falló.");
-    cleanup(allOk ? 0 : 1);
-  }, 3000);
+screen.on("day:defense", () => {
+  fail("No se esperaba una acusación en este test.");
 });
 
+// Este test necesita 3 noches completas para que la Mafia supere en número
+// a los buenos. Cada noche se resuelve apenas actúan Mafia/Detective/Médico
+// (ver NIGHT_EARLY_RESOLVE_MS en server.js), así que el timeout de acá es
+// solo una red de seguridad generosa, no una duración esperada.
 setTimeout(() => {
   if (!sawWinner) {
     console.error("❌ Timeout: algo no terminó a tiempo.");
     cleanup(1);
   }
-}, 60000);
+}, 240000);

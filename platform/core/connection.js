@@ -101,13 +101,19 @@ function remapPlayerId(room, oldId, newId, plugin) {
 function attachConnectionHandlers(io, socket) {
   // --- La pantalla compartida crea una sala nueva ---
   socket.on("screen:create", (data) => {
-    // TODO(paso 12): quitar el default una vez que games/index.js registre
-    // juegos reales y los clientes siempre manden gameId explícito.
-    const gameId = data?.gameId || "mafia";
-    const code = generateRoomCode();
+    const gameId = data?.gameId;
     const plugin = getGame(gameId);
+    if (!plugin) {
+      // No hay default (ver plan de migración, paso 12): un cliente tiene
+      // que mandar siempre el gameId que le corresponde a su propia
+      // página — si no lo manda, o manda uno que no está registrado, no
+      // hay sala que crear.
+      socket.emit("screen:createError", { error: "Juego desconocido." });
+      return;
+    }
+    const code = generateRoomCode();
     const chat = {};
-    (plugin?.chatChannels || []).forEach((c) => {
+    (plugin.chatChannels || []).forEach((c) => {
       chat[c.id] = [];
     });
     rooms[code] = {
@@ -117,7 +123,7 @@ function attachConnectionHandlers(io, socket) {
       phase: "lobby",
       chat,
       history: [],
-      gameState: plugin?.createGameState ? plugin.createGameState() : {},
+      gameState: plugin.createGameState ? plugin.createGameState() : {},
     };
     socket.join(code);
     socket.data.role = "screen";

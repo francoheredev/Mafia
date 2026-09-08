@@ -37,7 +37,7 @@ function runPhaseA(onDone, attempt = 1) {
     screen.close();
   }
 
-  screen.on("connect", () => screen.emit("screen:create"));
+  screen.on("connect", () => screen.emit("screen:create", { gameId: "mafia" }));
   screen.on("screen:created", ({ code }) => {
     console.log(`✅ [Fase A, intento ${attempt}] Sala creada:`, code);
     NAMES.forEach((name) => {
@@ -171,7 +171,7 @@ function runPhaseB(attempt = 1) {
     if (code !== undefined) process.exit(code);
   }
 
-  screen.on("connect", () => screen.emit("screen:create"));
+  screen.on("connect", () => screen.emit("screen:create", { gameId: "mafia" }));
   screen.on("screen:created", ({ code }) => {
     console.log(`\n✅ [Fase B, intento ${attempt}] Sala creada:`, code);
     NAMES.forEach((name) => {
