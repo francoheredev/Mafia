@@ -11,6 +11,8 @@ const os = require("os");
 const { Server } = require("socket.io");
 const { listGames } = require("./platform/core/registry");
 const { attachPluginEvents, attachConnectionHandlers } = require("./platform/core/connection");
+const hubRoutes = require("./platform/routes/hub");
+const { router: gamePagesRoutes, mountGameStatics } = require("./platform/routes/game-pages");
 
 require("./games"); // se auto-registran vía registerGame(...) al cargar
 
@@ -47,6 +49,13 @@ listGames().forEach((plugin) => {
   });
 });
 
+// Estáticos por juego (screen.js, *.css, etc.) bajo /games/<id>/.
+mountGameStatics(app);
+
+// Hub (GET /, GET /api/games) + páginas por juego (GET /:gameId/screen|player).
+app.use(hubRoutes);
+app.use(gamePagesRoutes);
+
 io.on("connection", (socket) => {
   // Despacha los eventos custom del juego activo en la sala del socket
   // (game:start, night:action, day:vote, ...) a través del registry.
@@ -58,6 +67,5 @@ io.on("connection", (socket) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`La Mafia (esqueleto) escuchando en http://localhost:${PORT}`);
-  console.log(`Pantalla:  http://localhost:${PORT}/screen.html`);
-  console.log(`Celular:   http://localhost:${PORT}/player.html`);
+  console.log(`Hub:       http://localhost:${PORT}/`);
 });
