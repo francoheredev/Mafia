@@ -4,6 +4,7 @@
 // para sumarlo a la plataforma. Nada bajo platform/ necesita tocarse para
 // agregar un juego más acá.
 require("./mafia/plugin");
+require("./blind-shot/plugin");
 
 // Plugin trivial, solo para que tests/platform/*.js pueda probar la
 // plataforma (lobby, reconexión, kick, chat) sin depender de la lógica de

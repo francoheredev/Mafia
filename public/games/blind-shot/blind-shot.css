@@ -1,0 +1,116 @@
+/* blind-shot.css — todo lo que es específico de Blind Shot: la arena
+   (pantalla y celular, ambas sobre <canvas>), el control de joystick +
+   puntería, el panel de "estás eliminado", fin de partida. La parte
+   genérica (layout base, FAB+modal, chat, historial, roster del lobby,
+   panel del host) vive en /platform/platform.css. */
+
+/* ---- Botón de empezar partida (mismo criterio que Mafia) ---- */
+#startBtn {
+  margin-top: 12px;
+}
+#startBtn:disabled {
+  background: #3a4256;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* ---- Arena (pantalla): el <canvas> ocupa el centro, con el contador de
+   vivos arriba. La zona es un rectángulo (proporción de pantalla de
+   celular en vertical, 9:16 — ver ZONE_ASPECT en games/blind-shot/logic.js
+   y CANVAS_ASPECT en player.js), no un círculo. ---- */
+.arena-wrap {
+  width: 100%;
+  max-width: 640px;
+  text-align: center;
+}
+.arena-stats {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin: 4px 0 12px;
+}
+#arenaCanvas {
+  width: auto;
+  height: min(70vh, 620px);
+  max-width: 100%;
+  aspect-ratio: 9 / 16;
+  background: #0c0f18;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px #262f45, inset 0 0 40px rgba(0, 0, 0, 0.6);
+}
+
+/* ---- Control del celular: mini-mapa + joystick/puntería, un único
+   <canvas> con touch-action:none para que el navegador no interprete los
+   toques como scroll/zoom (ver public/games/blind-shot/player.js). La
+   zona ocupa el rectángulo completo del canvas — "toda la pantalla del
+   celular", no un círculo inscripto. ---- */
+.control-wrap {
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+}
+#controlCanvas {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  background: #0c0f18;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px #262f45, inset 0 0 30px rgba(0, 0, 0, 0.6);
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  display: block;
+  margin: 0 auto;
+}
+.control-hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 10px;
+}
+
+/* ---- Paneles de estado del celular (esperando / eliminado / fin) ----
+   Reutiliza el mismo look que Mafia (.night-panel), pero redeclarado acá
+   porque public/games/mafia/mafia.css no se carga en las páginas de Blind
+   Shot. */
+.round-panel {
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
+}
+.round-panel h2 { margin: 0 0 8px; }
+
+/* ---- Fin de partida ---- */
+.final-roster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin: 20px auto 0;
+  max-width: 600px;
+}
+.final-roster .role-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 16px;
+  border-radius: 16px;
+  border: 2px solid transparent;
+  background: var(--panel);
+  font-size: 0.9rem;
+}
+.final-roster .role-chip.alive { border-color: var(--ok); }
+.final-roster .role-chip.dead { border-color: var(--danger); opacity: 0.7; }
+.final-roster .role-chip-icon { font-size: 1.3rem; }
+
+/* ---- Posiciones de los FAB propios de Blind Shot (reglas/chat/historial/
+   host) — el celular no tiene FAB de "rol" (no hay nada secreto que
+   mostrar de nuevo, a diferencia de Mafia). ---- */
+.chat-fab-pos {
+  top: 80px;
+}
+body.player .history-fab-pos {
+  top: 144px;
+}
+body.screen .history-fab-pos {
+  top: 144px;
+}

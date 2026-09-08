@@ -4,19 +4,20 @@ const path = require("path");
 
 // Levanta el server una sola vez (con NODE_ENV=test, para que el plugin
 // trivial de games/__test__/ se registre y tests/platform/*.js pueda
-// correr sin depender de Mafia), corre todos los test-*.js de
-// tests/platform/ y tests/mafia/ en secuencia contra él, y lo apaga al
-// final — así no hace falta arrancar "node server.js" a mano antes de cada
-// test suelto.
+// correr sin depender de Mafia, y para que Blind Shot acorte
+// ROUND_MOVE_MS/REVEAL_MS — ver games/blind-shot/logic.js), corre todos
+// los test-*.js de tests/platform/, tests/mafia/ y tests/blind-shot/ en
+// secuencia contra él, y lo apaga al final — así no hace falta arrancar
+// "node server.js" a mano antes de cada test suelto.
 //
-// Por default recorre ambos directorios; se le puede pasar uno o más
+// Por default recorre los tres directorios; se le puede pasar uno o más
 // directorios como argumentos (ej. "node run-tests.js tests/platform") para
 // correr solo un subconjunto — así es como funciona el script "test:platform".
 
 const ROOT = __dirname;
 const SERVER_READY_PATTERN = /escuchando en/i;
 const SERVER_READY_TIMEOUT_MS = 10000;
-const DEFAULT_TEST_DIRS = ["tests/platform", "tests/mafia"];
+const DEFAULT_TEST_DIRS = ["tests/platform", "tests/mafia", "tests/blind-shot"];
 
 function findTestFiles(dir) {
   const abs = path.join(ROOT, dir);
