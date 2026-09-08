@@ -1,6 +1,6 @@
 // platform/core/rooms.js
 // Estado de salas en memoria + utilidades genéricas para manipularlo. 100%
-// agnóstico de juego: no sabe nada de Mafia ni de ningún otro plugin —
+// agnóstico de juego: no sabe nada de ningún plugin en particular —
 // cualquier juego que corra sobre esta plataforma comparte este mismo mapa
 // de salas y estas mismas funciones de bajo nivel.
 

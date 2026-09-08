@@ -14,8 +14,25 @@
 // porque cada socket solo puede disparar el handler del plugin dueño de la
 // sala en la que está en ese momento.
 const { randomUUID } = require("crypto");
-const { rooms, publicPlayerList, capPush } = require("./rooms");
+const { rooms, publicPlayerList, capPush, generateRoomCode } = require("./rooms");
 const { getGame, listGames } = require("./registry");
+
+// Cada jugador recibe uno de estos como avatar al unirse. Nota de alcance:
+// el contrato de plugin (ver plan de migración) no define ningún hook para
+// que un juego provea su propio catálogo de íconos, así que por ahora esto
+// queda como comportamiento genérico de la plataforma — cualquier juego
+// nuevo hereda este mismo pool de animalitos hasta que eso se revise.
+const PLAYER_ICONS = [
+  "🦊", "🐻", "🦉", "🦌", "🦔", "🐿️", "🦇", "🐗", "🦅", "🐢",
+  "🦆", "🐸", "🦋", "🐝", "🦎", "🐍", "🦂", "🐌", "🦡", "🐇",
+  "🦃", "🦩", "🦚", "🦜", "🐦", "🦢", "🐴", "🐐", "🐑", "🐖",
+];
+function pickIcon(room) {
+  const used = new Set(Object.values(room.players).map((p) => p.icon));
+  const available = PLAYER_ICONS.filter((i) => !used.has(i));
+  const pool = available.length > 0 ? available : PLAYER_ICONS;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 
 // Unión de todos los nombres de evento custom que declaró CUALQUIER plugin
 // registrado — se recalcula en cada conexión porque es barato y así no hay
@@ -82,6 +99,95 @@ function remapPlayerId(room, oldId, newId, plugin) {
 // reconectado (onReconnect) — no conoce fases, roles ni ningún concepto de
 // un juego en particular.
 function attachConnectionHandlers(io, socket) {
+  // --- La pantalla compartida crea una sala nueva ---
+  socket.on("screen:create", (data) => {
+    // TODO(paso 12): quitar el default una vez que games/index.js registre
+    // juegos reales y los clientes siempre manden gameId explícito.
+    const gameId = data?.gameId || "mafia";
+    const code = generateRoomCode();
+    const plugin = getGame(gameId);
+    const chat = {};
+    (plugin?.chatChannels || []).forEach((c) => {
+      chat[c.id] = [];
+    });
+    rooms[code] = {
+      screenSocketId: socket.id,
+      gameId,
+      players: {},
+      phase: "lobby",
+      chat,
+      history: [],
+      gameState: plugin?.createGameState ? plugin.createGameState() : {},
+    };
+    socket.join(code);
+    socket.data.role = "screen";
+    socket.data.roomCode = code;
+    socket.emit("screen:created", { code });
+  });
+
+  // --- Un celular se une a una sala existente ---
+  socket.on("player:join", ({ code, name }, ack) => {
+    const room = rooms[code];
+    if (!room) {
+      ack?.({ ok: false, error: "Esa sala no existe. Revisá el código." });
+      return;
+    }
+    if (room.started) {
+      // Sin esto, alguien que se une después de repartidos los roles queda
+      // "adentro" pero sin rol asignado — y si termina siendo blanco de una
+      // acción de otro jugador (ej. el Vidente lo investiga), el servidor
+      // se cae al intentar leer un rol que no existe.
+      ack?.({ ok: false, error: "La partida ya empezó — pedile al anfitrión que arranque una nueva." });
+      return;
+    }
+    const cleanName = (name || "").trim().slice(0, 20) || "Jugador";
+
+    const nameTaken = Object.values(room.players).some(
+      (p) => p.connected && p.name.toLowerCase() === cleanName.toLowerCase()
+    );
+    if (nameTaken) {
+      ack?.({ ok: false, error: "Ya hay alguien conectado con ese nombre en la sala." });
+      return;
+    }
+
+    const token = randomUUID();
+    room.players[socket.id] = {
+      name: cleanName,
+      connected: true,
+      alive: true,
+      icon: pickIcon(room),
+      token,
+    };
+    socket.join(code);
+    socket.data.role = "player";
+    socket.data.roomCode = code;
+
+    ack?.({ ok: true, code, name: cleanName, icon: room.players[socket.id].icon, token });
+
+    // Avisa a la pantalla (y a los demás celulares) la lista actualizada
+    io.to(code).emit("lobby:update", { players: publicPlayerList(room) });
+  });
+
+  // --- La pantalla pide la lista de jugadores para el panel de expulsión ---
+  socket.on("screen:getRoster", (_data, ack) => {
+    const { role, roomCode } = socket.data;
+    const room = rooms[roomCode];
+    if (!room || role !== "screen") {
+      ack?.({ ok: false, error: "No autorizado." });
+      return;
+    }
+    ack?.({
+      ok: true,
+      players: Object.entries(room.players).map(([id, p]) => ({
+        id,
+        name: p.name,
+        icon: p.icon,
+        connected: p.connected,
+        alive: room.started ? p.alive : undefined,
+      })),
+    });
+  });
+
   socket.on("player:rejoin", ({ code, token }, ack) => {
     const room = rooms[code];
     if (!room) {
@@ -217,6 +323,27 @@ function attachConnectionHandlers(io, socket) {
       return;
     }
     ack?.({ ok: true, entries: room.history });
+  });
+
+  socket.on("disconnect", () => {
+    const { role, roomCode } = socket.data;
+    if (!roomCode || !rooms[roomCode]) return;
+    const room = rooms[roomCode];
+
+    if (role === "player" && room.players[socket.id]) {
+      // No lo borramos: queda "congelado" (marcado como desconectado) en
+      // vez de eliminarse, para que pueda reconectar más tarde.
+      room.players[socket.id].connected = false;
+      io.to(roomCode).emit("lobby:update", { players: publicPlayerList(room) });
+    }
+
+    if (role === "screen") {
+      // Si se cae la pantalla, por ahora solo lo logueamos. Decidir más
+      // adelante si la partida se recupera o se cierra la sala es una
+      // decisión de plataforma, no de ningún juego en particular — queda
+      // fuera de alcance de esta extracción.
+      console.log(`Pantalla desconectada de la sala ${roomCode}`);
+    }
   });
 }
 
