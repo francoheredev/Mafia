@@ -174,7 +174,7 @@ const rulesModal = document.getElementById("rulesModal");
 const rulesModalContent = document.getElementById("rulesModalContent");
 
 function buildRulesModalHtml() {
-  const data = window.LAMAFIA_RULES || { allRoles: [], generalRules: [] };
+  const data = window.GAME_RULES || { allRoles: [], generalRules: [] };
   const rolesHtml = data.allRoles
     .map(
       (r) => `
@@ -402,7 +402,7 @@ function roleIntroBeat(r) {
 }
 
 socket.on("game:started", ({ playerCount, roles }) => {
-  const ruleSteps = (window.LAMAFIA_RULES?.generalRules || []).map((s) => ({
+  const ruleSteps = (window.GAME_RULES?.generalRules || []).map((s) => ({
     html: narrativeBeat(s.icon, `<strong>${s.title}</strong><br>${s.text}`),
   }));
   const roleSteps = roles.map((r) => ({ html: roleIntroBeat(r) }));

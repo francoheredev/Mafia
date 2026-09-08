@@ -10,10 +10,10 @@ const http = require("http");
 const os = require("os");
 const { randomUUID } = require("crypto");
 const { Server } = require("socket.io");
-const { assignRoles, getMafiaAccomplices, getRolesInPlay, ROLE_INFO } = require("./roles");
-const { GENERAL_RULES } = require("./rules");
+const { assignRoles, getMafiaAccomplices, getRolesInPlay, ROLE_INFO } = require("./games/mafia/roles");
+const { GENERAL_RULES } = require("./games/mafia/rules");
 const { rooms, pushHistory, generateRoomCode, publicPlayerList } = require("./platform/core/rooms");
-const { registerGame, getGame } = require("./platform/core/registry");
+const { registerGame, getGame, listGames } = require("./platform/core/registry");
 const { attachPluginEvents, attachConnectionHandlers } = require("./platform/core/connection");
 
 const app = express();
@@ -40,18 +40,6 @@ app.get("/lan-ip", (req, res) => {
   res.json({ lanIp });
 });
 
-// Catálogo completo de roles (no solo los de esta partida) + reglas
-// generales, servido como JS estático para que tanto el celular como la
-// pantalla lo tengan disponible desde que cargan la página, sin necesidad
-// de un evento de socket dedicado ni de duplicar estos datos en el cliente.
-app.get("/rules-data.js", (req, res) => {
-  res.type("application/javascript").send(
-    `window.LAMAFIA_RULES = ${JSON.stringify({
-      allRoles: Object.entries(ROLE_INFO).map(([roleId, r]) => ({ roleId, ...r })),
-      generalRules: GENERAL_RULES,
-    })};`
-  );
-});
 
 // Tope máximo de la noche si a alguien se le hace larga la decisión.
 const NIGHT_TIMEOUT_MS = 60000;
@@ -1272,6 +1260,22 @@ const mafiaChatChannels = [
   },
 ];
 
+// Catálogo completo de roles (no solo los de esta partida) + reglas
+// generales, servido como JS estático para que tanto el celular como la
+// pantalla lo tengan disponible desde que cargan la página, sin necesidad
+// de un evento de socket dedicado ni de duplicar estos datos en el cliente.
+// Implementa el campo staticRoutes del contrato de plugin — la plataforma
+// monta cada ruta bajo /${gameId}${path} (ver más abajo), sin saber qué
+// devuelve.
+function mafiaRulesDataRoute(req, res) {
+  res.type("application/javascript").send(
+    `window.GAME_RULES = ${JSON.stringify({
+      allRoles: Object.entries(ROLE_INFO).map(([roleId, r]) => ({ roleId, ...r })),
+      generalRules: GENERAL_RULES,
+    })};`
+  );
+}
+
 registerGame({
   id: "mafia",
   socketHandlers: mafiaSocketHandlers,
@@ -1279,6 +1283,17 @@ registerGame({
   remapPlayerId: mafiaRemapPlayerId,
   onKick: mafiaOnKick,
   chatChannels: mafiaChatChannels,
+  staticRoutes: [{ path: "/rules-data.js", handler: mafiaRulesDataRoute }],
+});
+
+// Monta las staticRoutes de cada plugin registrado bajo /${gameId}${path} —
+// ver plan de migración paso 8 ("mover la ruta /rules-data.js a
+// plugin.staticRoutes montada en /mafia/rules-data.js"). server.js no sabe
+// qué devuelve cada ruta, solo dónde montarla.
+listGames().forEach((plugin) => {
+  (plugin.staticRoutes || []).forEach((route) => {
+    app.get(`/${plugin.id}${route.path}`, route.handler);
+  });
 });
 
 io.on("connection", (socket) => {

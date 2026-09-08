@@ -136,7 +136,7 @@ const rulesModal = document.getElementById("rulesModal");
 const rulesModalContent = document.getElementById("rulesModalContent");
 
 function buildRulesModalHtml() {
-  const data = window.LAMAFIA_RULES || { allRoles: [], generalRules: [] };
+  const data = window.GAME_RULES || { allRoles: [], generalRules: [] };
   const rolesHtml = data.allRoles
     .map(
       (r) => `
