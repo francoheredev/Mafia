@@ -13,6 +13,8 @@ const { Server } = require("socket.io");
 const { assignRoles, getMafiaAccomplices, getRolesInPlay, ROLE_INFO } = require("./roles");
 const { GENERAL_RULES } = require("./rules");
 const { rooms, capPush, pushHistory, generateRoomCode, publicPlayerList } = require("./platform/core/rooms");
+const { registerGame } = require("./platform/core/registry");
+const { attachPluginEvents } = require("./platform/core/connection");
 
 const app = express();
 const server = http.createServer(app);
@@ -870,81 +872,18 @@ function kickPlayer(io, room, roomCode, targetId) {
   return { ok: true };
 }
 
-io.on("connection", (socket) => {
-  // --- La pantalla compartida crea una sala nueva ---
-  socket.on("screen:create", (data) => {
-    // TODO(step 12): quitar el default una vez que games/index.js registre
-    // juegos reales y los clientes siempre manden gameId explícito.
-    const gameId = data?.gameId || "mafia";
-    const code = generateRoomCode();
-    rooms[code] = {
-      screenSocketId: socket.id,
-      gameId,
-      players: {},
-      phase: "lobby",
-      chat: { general: [], fantasmas: [] },
-      history: [],
-      gameState: { loversIds: [] },
-    };
-    socket.join(code);
-    socket.data.role = "screen";
-    socket.data.roomCode = code;
-    socket.emit("screen:created", { code });
-  });
-
-  // --- Un celular se une a una sala existente ---
-  socket.on("player:join", ({ code, name }, ack) => {
-    const room = rooms[code];
-    if (!room) {
-      ack?.({ ok: false, error: "Esa sala no existe. Revisá el código." });
-      return;
-    }
-    if (room.started) {
-      // Sin esto, alguien que se une después de repartidos los roles queda
-      // "adentro" pero sin rol asignado — y si termina siendo blanco de una
-      // acción de otro jugador (ej. el Vidente lo investiga), el servidor
-      // se cae al intentar leer un rol que no existe.
-      ack?.({ ok: false, error: "La partida ya empezó — pedile al anfitrión que arranque una nueva." });
-      return;
-    }
-    const cleanName = (name || "").trim().slice(0, 20) || "Jugador";
-
-    const nameTaken = Object.values(room.players).some(
-      (p) => p.connected && p.name.toLowerCase() === cleanName.toLowerCase()
-    );
-    if (nameTaken) {
-      ack?.({ ok: false, error: "Ya hay alguien conectado con ese nombre en la sala." });
-      return;
-    }
-
-    const token = randomUUID();
-    room.players[socket.id] = {
-      name: cleanName,
-      connected: true,
-      alive: true,
-      icon: pickIcon(room),
-      token,
-    };
-    socket.join(code);
-    socket.data.role = "player";
-    socket.data.roomCode = code;
-
-    ack?.({ ok: true, code, name: cleanName, icon: room.players[socket.id].icon, token });
-
-    // Avisa a la pantalla (y a los demás celulares) la lista actualizada
-    io.to(code).emit("lobby:update", { players: publicPlayerList(room) });
-  });
-
+// --- Handlers custom de Mafia, expuestos como plugin (ver plan de
+//     migración paso 4). Los cuerpos siguen viviendo acá por ahora — recién
+//     se mudan a games/mafia/ en un paso posterior — pero ya se despachan a
+//     través de platform/core/connection.js en vez de registrarse
+//     directamente sobre cada socket, así el mecanismo de despacho por
+//     room.gameId queda probado desde ya. ctx = { io, socket, room, roomCode }.
+const mafiaSocketHandlers = {
   // --- La pantalla arranca la partida: se sortean y reparten los roles ---
-  socket.on("game:start", (_data, ack) => {
-    const { role, roomCode } = socket.data;
-    const room = rooms[roomCode];
+  "game:start": (ctx, _data, ack) => {
+    const { io, socket, room, roomCode } = ctx;
 
-    if (!room) {
-      ack?.({ ok: false, error: "La sala ya no existe." });
-      return;
-    }
-    if (role !== "screen") {
+    if (socket.data.role !== "screen") {
       ack?.({ ok: false, error: "Solo la pantalla puede empezar la partida." });
       return;
     }
@@ -1019,13 +958,12 @@ io.on("connection", (socket) => {
       roles: getRolesInPlay(assignment),
     });
     pushHistory(io, room, roomCode, "🎭", "Los roles fueron repartidos. Comienza la partida.");
-  });
+  },
 
   // --- Ciclo Noche: Mafia (líder rotativo), Vidente y Médico mandan su acción ---
-  socket.on("night:action", ({ role, targetId }, ack) => {
-    const { roomCode } = socket.data;
-    const room = rooms[roomCode];
-    if (!room || room.phase !== "night") {
+  "night:action": (ctx, { role, targetId }, ack) => {
+    const { io, socket, room, roomCode } = ctx;
+    if (room.phase !== "night") {
       ack?.({ ok: false, error: "No es de noche." });
       return;
     }
@@ -1158,15 +1096,14 @@ io.on("connection", (socket) => {
     // restante (ver maybeShortenNight/NIGHT_EARLY_RESOLVE_MS) en vez de
     // esperar el NIGHT_TIMEOUT_MS completo.
     maybeShortenNight(io, room, roomCode);
-  });
+  },
 
   // --- Sugerencia no vinculante de la Mafia (para ponerse de acuerdo antes
   //     de que el líder confirme la elección real; cualquier mafioso puede
   //     mandar la suya, no solo el líder) ---
-  socket.on("night:mafiaSuggest", ({ targetId }, ack) => {
-    const { roomCode } = socket.data;
-    const room = rooms[roomCode];
-    if (!room || room.phase !== "night") {
+  "night:mafiaSuggest": (ctx, { targetId }, ack) => {
+    const { io, socket, room } = ctx;
+    if (room.phase !== "night") {
       ack?.({ ok: false, error: "No es de noche." });
       return;
     }
@@ -1194,13 +1131,12 @@ io.on("connection", (socket) => {
 
     ack?.({ ok: true });
     broadcastMafiaSuggestions(io, room);
-  });
+  },
 
   // --- La pantalla corta antes de tiempo una fase de discusión/defensa ---
-  socket.on("day:advance", (_data, ack) => {
-    const { role, roomCode } = socket.data;
-    const room = rooms[roomCode];
-    if (!room || role !== "screen") {
+  "day:advance": (ctx, _data, ack) => {
+    const { io, socket, room, roomCode } = ctx;
+    if (socket.data.role !== "screen") {
       ack?.({ ok: false, error: "Solo la pantalla puede avanzar de fase." });
       return;
     }
@@ -1230,13 +1166,12 @@ io.on("connection", (socket) => {
       // hay próxima fase a la que avanzar.
       ack?.({ ok: false, error: "No hay nada para avanzar ahora." });
     }
-  });
+  },
 
   // --- Votación: a quién acusar ---
-  socket.on("day:vote", ({ targetId }, ack) => {
-    const { roomCode } = socket.data;
-    const room = rooms[roomCode];
-    if (!room || room.phase !== "day-voting") {
+  "day:vote": (ctx, { targetId }, ack) => {
+    const { io, socket, room, roomCode } = ctx;
+    if (room.phase !== "day-voting") {
       ack?.({ ok: false, error: "No es momento de votar." });
       return;
     }
@@ -1261,13 +1196,12 @@ io.on("connection", (socket) => {
     ack?.({ ok: true });
     broadcastVotingProgress(io, room, roomCode);
     maybeResolveVoting(io, room, roomCode);
-  });
+  },
 
   // --- Juicio: culpable o inocente ---
-  socket.on("day:verdict", ({ verdict }, ack) => {
-    const { roomCode } = socket.data;
-    const room = rooms[roomCode];
-    if (!room || room.phase !== "day-trial") {
+  "day:verdict": (ctx, { verdict }, ack) => {
+    const { io, socket, room, roomCode } = ctx;
+    if (room.phase !== "day-trial") {
       ack?.({ ok: false, error: "No es momento de votar el veredicto." });
       return;
     }
@@ -1292,6 +1226,82 @@ io.on("connection", (socket) => {
     ack?.({ ok: true });
     io.to(roomCode).emit("day:verdictProgress", { votedIds: Object.keys(room.gameState.day.verdicts) });
     maybeResolveTrial(io, room, roomCode);
+  },
+};
+
+registerGame({
+  id: "mafia",
+  socketHandlers: mafiaSocketHandlers,
+});
+
+io.on("connection", (socket) => {
+  // Despacha los eventos custom del juego activo en la sala del socket
+  // (game:start, night:action, day:vote, ...) a través del registry — ver
+  // platform/core/connection.js.
+  attachPluginEvents(io, socket);
+
+  // --- La pantalla compartida crea una sala nueva ---
+  socket.on("screen:create", (data) => {
+    // TODO(step 12): quitar el default una vez que games/index.js registre
+    // juegos reales y los clientes siempre manden gameId explícito.
+    const gameId = data?.gameId || "mafia";
+    const code = generateRoomCode();
+    rooms[code] = {
+      screenSocketId: socket.id,
+      gameId,
+      players: {},
+      phase: "lobby",
+      chat: { general: [], fantasmas: [] },
+      history: [],
+      gameState: { loversIds: [] },
+    };
+    socket.join(code);
+    socket.data.role = "screen";
+    socket.data.roomCode = code;
+    socket.emit("screen:created", { code });
+  });
+
+  // --- Un celular se une a una sala existente ---
+  socket.on("player:join", ({ code, name }, ack) => {
+    const room = rooms[code];
+    if (!room) {
+      ack?.({ ok: false, error: "Esa sala no existe. Revisá el código." });
+      return;
+    }
+    if (room.started) {
+      // Sin esto, alguien que se une después de repartidos los roles queda
+      // "adentro" pero sin rol asignado — y si termina siendo blanco de una
+      // acción de otro jugador (ej. el Vidente lo investiga), el servidor
+      // se cae al intentar leer un rol que no existe.
+      ack?.({ ok: false, error: "La partida ya empezó — pedile al anfitrión que arranque una nueva." });
+      return;
+    }
+    const cleanName = (name || "").trim().slice(0, 20) || "Jugador";
+
+    const nameTaken = Object.values(room.players).some(
+      (p) => p.connected && p.name.toLowerCase() === cleanName.toLowerCase()
+    );
+    if (nameTaken) {
+      ack?.({ ok: false, error: "Ya hay alguien conectado con ese nombre en la sala." });
+      return;
+    }
+
+    const token = randomUUID();
+    room.players[socket.id] = {
+      name: cleanName,
+      connected: true,
+      alive: true,
+      icon: pickIcon(room),
+      token,
+    };
+    socket.join(code);
+    socket.data.role = "player";
+    socket.data.roomCode = code;
+
+    ack?.({ ok: true, code, name: cleanName, icon: room.players[socket.id].icon, token });
+
+    // Avisa a la pantalla (y a los demás celulares) la lista actualizada
+    io.to(code).emit("lobby:update", { players: publicPlayerList(room) });
   });
 
   // --- Reconexión: el jugador "congelado" recupera su mismo estado, sin
