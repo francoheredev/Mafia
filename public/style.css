@@ -222,6 +222,22 @@ button {
   bottom: 16px;
   right: 16px;
 }
+.sound-fab-pos {
+  top: 80px; /* apilado debajo de rulesFab, arriba de hostFab */
+}
+.chat-fab-pos {
+  top: 144px; /* celular: apilado debajo de rulesFab */
+}
+/* history-fab-pos se apila en un lugar distinto en cada pantalla (el
+   celular ya tiene roleFab+rulesFab+chatFab arriba; la pantalla compartida
+   solo tiene rulesFab+soundFab), así que se resuelve por body.player/.screen
+   en vez de un único valor fijo. */
+body.player .history-fab-pos {
+  top: 208px;
+}
+body.screen .history-fab-pos {
+  top: 144px;
+}
 
 /* ---- Catálogo de roles en juego (pantalla) ---- */
 .roles-catalog {
@@ -502,3 +518,77 @@ button {
 }
 .guilty-btn { background: var(--danger); color: #1a1a1a; }
 .innocent-btn { background: var(--ok); color: #1a1a1a; }
+
+/* ---- Panel de noche combinado: voto colectivo de la Mafia + poder
+   personal de Bruja/Carnicero, uno debajo del otro dentro del mismo
+   .night-panel (ver renderMafiaNightPanel en player.js) ---- */
+.night-panel-section + .night-panel-section {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #333c52;
+}
+
+/* ---- Info del Amante, en la tarjeta de rol (celular) ---- */
+.lover-info { margin-top: 12px; color: var(--accent); }
+
+/* ---- Chat (celular): pestañas General / Fantasmas ---- */
+.chat-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.chat-tab {
+  flex: 1;
+  width: auto;
+  background: transparent;
+  border: 1px solid #333c52;
+  color: var(--muted);
+  padding: 8px;
+  font-size: 0.9rem;
+}
+.chat-tab.active { border-color: var(--accent); color: var(--text); }
+.chat-tab:disabled { opacity: 0.4; cursor: not-allowed; }
+.chat-log {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  max-height: 45vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chat-log li {
+  background: var(--panel);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  text-align: left;
+}
+.chat-icon { margin-right: 4px; }
+.chat-input-row {
+  display: flex;
+  flex-direction: row; /* el selector genérico "form" de más arriba fuerza column */
+  gap: 8px;
+}
+.chat-input-row input { flex: 1; margin: 0; }
+.chat-input-row button { width: auto; padding: 10px 16px; }
+
+/* ---- Historial de acciones (pantalla y celular) ---- */
+.history-list {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.history-list li {
+  background: var(--panel);
+  padding: 10px 14px;
+  border-radius: 10px;
+  text-align: left;
+  font-size: 0.9rem;
+}

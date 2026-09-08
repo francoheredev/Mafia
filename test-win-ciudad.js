@@ -51,7 +51,10 @@ screen.on("screen:created", ({ code }) => {
         if (joinedCount === NAMES.length) {
           console.log(`✅ Los ${NAMES.length} jugadores se unieron. Arrancando partida...`);
           screen.emit("game:start", null, (res2) => {
-            if (!res2.ok) fail("Error al arrancar: " + res2.error);
+            if (!res2.ok) return fail("Error al arrancar: " + res2.error);
+            screen.emit("day:advance", null, (res3) => {
+              if (!res3.ok) fail("No se pudo pasar la intro de roles: " + res3.error);
+            });
           });
         }
       });
@@ -185,9 +188,9 @@ screen.on("day:resolved", ({ executed, deaths, winner, roster }) => {
   });
 });
 
-// Este test necesita 2 noches completas (una por cada mafioso a ejecutar) y
-// cada una ya no se resuelve antes de tiempo — siempre corre el
-// NIGHT_TIMEOUT_MS completo (60s), más los 22s de ROLE_REVEAL_MS iniciales.
+// Este test necesita 2 noches (una por cada mafioso a ejecutar); cada una se
+// resuelve apenas actúan todos (ver NIGHT_EARLY_RESOLVE_MS en server.js), así
+// que este timeout es solo una red de seguridad generosa.
 setTimeout(() => {
   if (!sawWinner) {
     console.error("❌ Timeout: algo no terminó a tiempo.");

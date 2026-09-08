@@ -6,12 +6,24 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "test": "node run-tests.js",
     "test:flow": "node test-flow.js",
     "test:roles": "node test-roles.js",
     "test:night": "node test-night.js",
     "test:day": "node test-day.js",
     "test:win-ciudad": "node test-win-ciudad.js",
-    "test:win-mafia": "node test-win-mafia.js"
+    "test:win-mafia": "node test-win-mafia.js",
+    "test:win-bufon": "node test-win-bufon.js",
+    "test:lycan": "node test-lycan-transform.js",
+    "test:bruja": "node test-bruja-reveal.js",
+    "test:carnicero": "node test-carnicero-silence.js",
+    "test:intendente": "node test-intendente-doublevote.js",
+    "test:amantes": "node test-amantes.js",
+    "test:chat": "node test-chat.js",
+    "test:history": "node test-history.js",
+    "test:reconnect": "node test-reconnect.js",
+    "test:restart": "node test-restart.js",
+    "test:kick": "node test-kick.js"
   },
   "dependencies": {
     "express": "^4.19.2",

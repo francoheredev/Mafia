@@ -23,7 +23,7 @@ const GENERAL_RULES = [
   {
     icon: "🗳️",
     title: "Votación y juicio",
-    text: "Cada uno vota (o se abstiene) a quién acusar. El más votado se defiende, y después el resto decide con un veredicto de culpable o inocente si lo expulsa.",
+    text: "Cada uno vota (o se abstiene) a quién acusar. Si hay empate entre los más votados, se sortea entre ellos — no se salva nadie por empatar. El más votado (o el sorteado) se defiende, y después el resto decide con un veredicto de culpable o inocente si lo expulsa.",
   },
   {
     icon: "🤫",

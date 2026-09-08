@@ -1,8 +1,9 @@
 const { io } = require("socket.io-client");
 
-// 10 jugadores: se arma la partida, se pasa una noche sin muertes (a
-// propósito, para simplificar quién vota en el Día) y se prueba el ciclo
-// Día completo: discusión -> votación -> defensa -> juicio -> ejecución.
+// 10 jugadores (incluye Bruja/Carnicero/Intendente/Lycan): se arma la
+// partida, se pasa una noche sin muertes (a propósito, para simplificar
+// quién vota en el Día) y se prueba el ciclo Día completo: discusión ->
+// votación -> defensa -> juicio -> ejecución.
 const NAMES = ["Fede", "Juli", "Male", "Naza", "Caro", "Tomi", "Vale", "Bruno", "Sol", "Nico"];
 
 const screen = io("http://localhost:3000");
@@ -14,6 +15,7 @@ let actedMafia = false;
 let actedDetective = false;
 let actedMedico = false;
 let accusedEntry = null;
+const actedMafiaPower = new Set();
 
 function byRoleId(roleId) {
   return players.find((p) => p.role?.roleId === roleId);
@@ -46,7 +48,10 @@ screen.on("screen:created", ({ code }) => {
         if (joinedCount === NAMES.length) {
           console.log(`✅ Los ${NAMES.length} jugadores se unieron. Arrancando partida...`);
           screen.emit("game:start", null, (res2) => {
-            if (!res2.ok) fail("Error al arrancar: " + res2.error);
+            if (!res2.ok) return fail("Error al arrancar: " + res2.error);
+            screen.emit("day:advance", null, (res3) => {
+              if (!res3.ok) fail("No se pudo pasar la intro de roles: " + res3.error);
+            });
           });
         }
       });
@@ -100,6 +105,18 @@ screen.on("screen:created", ({ code }) => {
           if (!res.ok) fail("Vidente no pudo investigar: " + res.error);
         });
       }
+    });
+
+    // Bruja/Carnicero: poder personal además del voto colectivo — hay que
+    // usarlo para que la noche se acorte (ver NIGHT_EARLY_RESOLVE_MS en
+    // server.js), si no el test espera el NIGHT_TIMEOUT_MS completo.
+    p.on("night:mafiaPower", ({ role, targets }) => {
+      if (actedMafiaPower.has(entry.socketId)) return;
+      actedMafiaPower.add(entry.socketId);
+      const target = targets.find((t) => t.id !== entry.socketId) || targets[0];
+      p.emit("night:action", { role, targetId: target.id }, (res) => {
+        if (!res.ok) fail(`${role} no pudo usar su poder: ` + res.error);
+      });
     });
 
     // --- Día: votan todos por el mismo Aldeano para forzar una acusación
@@ -194,10 +211,10 @@ screen.on("day:resolved", ({ executed, guiltyCount, innocentCount, deaths }) => 
   });
 });
 
-// La noche 1 ya no se resuelve antes de tiempo (siempre corre el
-// NIGHT_TIMEOUT_MS completo de 60s), más los 22s de ROLE_REVEAL_MS antes de
-// que arranque — el resto del ciclo Día se corta al instante con
-// day:advance, así que no suma tiempo real relevante.
+// La noche 1 se resuelve apenas actúan todos (ver NIGHT_EARLY_RESOLVE_MS en
+// server.js), más los 22s de ROLE_REVEAL_MS antes de que arranque — el resto
+// del ciclo Día se corta al instante con day:advance, así que este timeout
+// es solo una red de seguridad generosa.
 setTimeout(() => {
   if (!sawSecondNight) {
     console.error("❌ Timeout: algo no terminó a tiempo.");

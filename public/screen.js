@@ -1,19 +1,128 @@
 const socket = io();
 
+// Se guarda para poder reconstruir el lobby (QR incluido) cuando se reinicia
+// la partida en la misma sala, sin tener que crear una sala nueva.
+let currentRoomCode = null;
+
+// La pantalla se suele abrir como "localhost" en la PC, pero el QR lo
+// escanea un celular en la misma red — necesita la IP LAN de la PC, no
+// "localhost" (que en el celular apunta al propio celular).
+const lanIpPromise = fetch("/lan-ip")
+  .then((r) => r.json())
+  .then((d) => d.lanIp)
+  .catch(() => null);
+
+async function buildJoinUrl(code) {
+  const lanIp = await lanIpPromise;
+  const port = window.location.port ? `:${window.location.port}` : "";
+  const host = lanIp || window.location.hostname;
+  return `${window.location.protocol}//${host}${port}/player.html?code=${code}`;
+}
+
 socket.on("connect", () => {
   socket.emit("screen:create");
 });
 
-socket.on("screen:created", ({ code }) => {
+socket.on("screen:created", async ({ code }) => {
+  currentRoomCode = code;
   document.getElementById("roomCode").textContent = code;
 
-  // El QR lleva directo a la página del celular con el código precargado
-  const joinUrl = `${window.location.origin}/player.html?code=${code}`;
+  const joinUrl = await buildJoinUrl(code);
   new QRCode(document.getElementById("qrcode"), {
     text: joinUrl,
     width: 220,
     height: 220,
   });
+});
+
+// --- Narrador (voz sintética) + efectos de sonido (Web Audio) ---
+// Vive solo acá, en la pantalla compartida: es la "TV" de la mesa, así que
+// es el único dispositivo que tiene sentido que narre y suene — los
+// celulares no deberían sumar su propio audio por separado.
+let soundEnabled = true;
+let audioCtx = null;
+
+// La voz del narrador (Web Speech API) quedó apagada a pedido del usuario —
+// no le convenció cómo sonaba — hasta que se retome y se ajuste. El resto
+// del audio (música ambiente + stingers) sigue activo. Para reactivarla
+// alcanza con volver esto a `true`.
+const NARRATOR_ENABLED = false;
+
+function ensureAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+
+// Extrae el texto plano de un narrativeBeat (o cualquier HTML) para narrarlo
+// con el mismo contenido que ya se muestra en pantalla, sin duplicarlo.
+function stripToSpeech(html) {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function speak(text) {
+  if (!NARRATOR_ENABLED || !soundEnabled || !window.speechSynthesis || !text) return;
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  const voices = window.speechSynthesis.getVoices();
+  const esVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("es"));
+  if (esVoice) utter.voice = esVoice;
+  utter.lang = esVoice?.lang || "es-ES";
+  utter.rate = 0.95;
+  window.speechSynthesis.speak(utter);
+}
+
+// Sting corto (3 notas) para un momento puntual — no es un loop.
+function playStinger(kind) {
+  if (!soundEnabled) return;
+  const ctx = ensureAudioCtx();
+  const notes = {
+    death: [220, 196, 174.6],
+    victory: [392, 523.25, 659.25],
+    ominous: [174.6, 155.6, 130.8],
+    neutral: [261.6, 246.9, 220],
+  }[kind];
+  if (!notes) return;
+
+  let t = ctx.currentTime;
+  notes.forEach((freq) => {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = "triangle";
+    osc.frequency.value = freq;
+    g.gain.value = 0;
+    osc.connect(g).connect(ctx.destination);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.15, t + 0.05);
+    g.gain.linearRampToValueAtTime(0, t + 0.4);
+    osc.start(t);
+    osc.stop(t + 0.45);
+    t += 0.35;
+  });
+}
+
+// Desbloquea audio/voz ante el primer gesto del usuario (los navegadores no
+// dejan sonar nada antes de eso) — se llama en cada click de "Empezar
+// partida", que siempre ocurre antes de la primera noche.
+function unlockSound() {
+  ensureAudioCtx();
+  if (window.speechSynthesis) {
+    const warmup = new SpeechSynthesisUtterance(" ");
+    warmup.volume = 0;
+    window.speechSynthesis.speak(warmup);
+  }
+}
+
+const soundFab = document.getElementById("soundFab");
+soundFab.addEventListener("click", () => {
+  soundEnabled = !soundEnabled;
+  soundFab.textContent = soundEnabled ? "🔊" : "🔇";
+  if (!soundEnabled) {
+    window.speechSynthesis?.cancel();
+  }
 });
 
 socket.on("lobby:update", ({ players }) => {
@@ -38,6 +147,7 @@ socket.on("lobby:update", ({ players }) => {
 });
 
 document.getElementById("startBtn").addEventListener("click", () => {
+  unlockSound();
   const startError = document.getElementById("startError");
   startError.textContent = "";
   socket.emit("game:start", null, (res) => {
@@ -141,6 +251,37 @@ socket.on("player:removed", ({ removedIds }) => {
   removedIds.forEach((id) => document.getElementById(`avatar-${id}`)?.remove());
 });
 
+// --- Historial público de la partida ---
+const historyFab = document.getElementById("historyFab");
+const historyModal = document.getElementById("historyModal");
+const historyList = document.getElementById("historyList");
+
+function renderHistoryEntries(entries) {
+  historyList.innerHTML = entries.length
+    ? entries.map((e) => `<li>${e.icon} ${e.text}</li>`).join("")
+    : `<li class="hint">Todavía no pasó nada.</li>`;
+  historyList.scrollTop = historyList.scrollHeight;
+}
+
+historyFab.addEventListener("click", () => {
+  socket.emit("history:get", null, (res) => {
+    if (res.ok) renderHistoryEntries(res.entries);
+  });
+  historyModal.classList.remove("hidden");
+});
+document.getElementById("historyModalClose").addEventListener("click", () => {
+  historyModal.classList.add("hidden");
+});
+historyModal.addEventListener("click", (e) => {
+  if (e.target === historyModal) historyModal.classList.add("hidden");
+});
+socket.on("history:entry", (entry) => {
+  if (!historyModal.classList.contains("hidden")) {
+    historyList.insertAdjacentHTML("beforeend", `<li>${entry.icon} ${entry.text}</li>`);
+    historyList.scrollTop = historyList.scrollHeight;
+  }
+});
+
 // Todo reemplazo de la pantalla principal pasa por acá — así cualquier paso
 // de narrativa que haya quedado pendiente de la fase anterior se corta
 // antes de que la fase nueva se dibuje encima.
@@ -148,6 +289,41 @@ let narrativeTimer = null;
 function renderScreen(html) {
   clearTimeout(narrativeTimer);
   document.querySelector(".lobby-screen").innerHTML = html;
+}
+
+// Reconstruye la pantalla de lobby (mismo markup que trae screen.html al
+// cargar) — hace falta después de un game:restart, porque para ese momento
+// renderScreen ya reemplazó ese contenido varias veces con las pantallas de
+// noche/día/fin de partida.
+async function renderLobbyShell(code) {
+  renderScreen(`
+    <h1>🐺 La Mafia</h1>
+    <p class="subtitle">Escaneá el código con tu celular para unirte</p>
+    <div class="code-panel">
+      <div id="qrcode"></div>
+      <div class="room-code" id="roomCode">${code}</div>
+    </div>
+    <section class="players-panel">
+      <h2>Jugadores en la sala (<span id="playerCount">0</span>)</h2>
+      <ul id="playerList" class="player-list"></ul>
+      <p class="hint">Necesitás mínimo 6 jugadores para arrancar (ver GDD).</p>
+      <button id="startBtn" disabled>Empezar partida</button>
+      <p id="startError" class="error"></p>
+    </section>
+  `);
+  new QRCode(document.getElementById("qrcode"), {
+    text: await buildJoinUrl(code),
+    width: 220,
+    height: 220,
+  });
+  document.getElementById("startBtn").addEventListener("click", () => {
+    unlockSound();
+    const startError = document.getElementById("startError");
+    startError.textContent = "";
+    socket.emit("game:start", null, (res) => {
+      if (!res.ok) startError.textContent = res.error;
+    });
+  });
 }
 
 // Reproduce una secuencia de "beats" narrativos, uno a la vez, con una
@@ -167,6 +343,8 @@ function playNarrative(steps, finalHtml, onDone) {
     container.innerHTML = steps[i].html;
     void container.offsetWidth; // reinicia la animación CSS
     container.classList.add("narrative-fade-in");
+    speak(stripToSpeech(steps[i].html));
+    if (steps[i].sfx) playStinger(steps[i].sfx);
     narrativeTimer = setTimeout(step, steps[i].delayMs ?? 2200);
     i++;
   }
@@ -182,32 +360,69 @@ function narrativeBeat(icon, text) {
   `;
 }
 
+// Como playNarrative, pero cada paso espera un clic del anfitrión en vez de
+// avanzar solo por tiempo — para secuencias que el anfitrión quiere leer (o
+// leer en voz alta) a su propio ritmo, como la intro de reglas + roles.
+// `steps`: [{ html, nextLabel? }]. El botón del último paso llama a
+// `onComplete` en vez de pasar al siguiente.
+function playNarrativeManual(steps, onComplete) {
+  clearTimeout(narrativeTimer);
+  const container = document.querySelector(".lobby-screen");
+  let i = 0;
+  function render() {
+    const isLast = i === steps.length - 1;
+    const label = steps[i].nextLabel || (isLast ? "Continuar →" : "Siguiente →");
+    container.classList.remove("narrative-fade-in");
+    container.innerHTML = `${steps[i].html}<button id="narrativeAdvanceBtn" class="advance-btn">${label}</button>`;
+    void container.offsetWidth; // reinicia la animación CSS
+    container.classList.add("narrative-fade-in");
+    speak(stripToSpeech(steps[i].html));
+    document.getElementById("narrativeAdvanceBtn").addEventListener("click", () => {
+      if (isLast) {
+        onComplete?.();
+      } else {
+        i++;
+        render();
+      }
+    });
+  }
+  render();
+}
+
+function roleIntroBeat(r) {
+  return `
+    <div class="narrative-beat">
+      <div class="role-chip team-${r.team}">
+        <span class="role-chip-icon">${r.icon}</span>
+        <span class="role-chip-name">${r.narrativeName}${r.count > 1 ? ` ×${r.count}` : ""}</span>
+        <p class="role-chip-tip">${r.tip}</p>
+      </div>
+    </div>
+  `;
+}
+
 socket.on("game:started", ({ playerCount, roles }) => {
-  const rolesHtml = roles
-    .map(
-      (r) => `
-        <div class="role-chip team-${r.team}">
-          <span class="role-chip-icon">${r.icon}</span>
-          <span class="role-chip-name">${r.narrativeName}${r.count > 1 ? ` ×${r.count}` : ""}</span>
-          <p class="role-chip-tip">${r.tip}</p>
-        </div>
-      `
-    )
-    .join("");
-  const rulesHtml = (window.LAMAFIA_RULES?.generalRules || [])
-    .map((s) => `<div class="rules-section"><h3>${s.icon} ${s.title}</h3><p>${s.text}</p></div>`)
-    .join("");
+  const ruleSteps = (window.LAMAFIA_RULES?.generalRules || []).map((s) => ({
+    html: narrativeBeat(s.icon, `<strong>${s.title}</strong><br>${s.text}`),
+  }));
+  const roleSteps = roles.map((r) => ({ html: roleIntroBeat(r) }));
 
-  renderScreen(`
-    <h1>🎭 Roles repartidos</h1>
-    <p class="subtitle">${playerCount} jugadores ya tienen su rol en el celular.</p>
-    <p class="hint">Estos son los roles en juego esta partida (en secreto, cada quien sabe el suyo):</p>
-    <div class="roles-catalog">${rolesHtml}</div>
-    <div class="rules-summary">${rulesHtml}</div>
-    <p class="hint" id="timerDisplay"></p>
-  `);
+  const steps = [
+    {
+      html: `
+        <h1>🎭 Roles repartidos</h1>
+        <p class="subtitle">${playerCount} jugadores ya tienen su rol en el celular.</p>
+        <p class="hint">Antes de que caiga la noche, repasemos cómo se juega...</p>
+      `,
+      nextLabel: "Empezar →",
+    },
+    ...ruleSteps,
+    { html: `<p class="hint">Estos son los roles en juego esta partida (en secreto, cada quien sabe el suyo):</p>`, nextLabel: "Ver roles →" },
+    ...roleSteps,
+  ];
+  steps[steps.length - 1].nextLabel = "🌙 Que caiga la noche";
 
-  timerFormat = (s) => `🌙 La noche cae en ${s}s...`;
+  playNarrativeManual(steps, () => socket.emit("day:advance"));
 });
 
 // Acomoda los avatares de los jugadores en ronda (de noche alrededor del
@@ -248,7 +463,17 @@ function gameOverBeat(winner) {
   if (winner === "ciudad") {
     return narrativeBeat("🏘️", "El último mafioso ha caído. La aldea respira tranquila...");
   }
+  if (winner === "bufon") {
+    return narrativeBeat("🃏", "El pueblo cae en la trampa: ¡acaban de expulsar al Bufón!");
+  }
   return narrativeBeat("🤝", "No queda nadie en pie para contarlo...");
+}
+
+// Sting al llegar al resultado final de la partida.
+function playGameOverSting(winner) {
+  if (winner === "mafia") playStinger("ominous");
+  else if (winner === "ciudad" || winner === "bufon") playStinger("victory");
+  else playStinger("neutral");
 }
 
 function gameOverFinalHtml(winner, roster) {
@@ -257,6 +482,8 @@ function gameOverFinalHtml(winner, roster) {
       ? "🐺 ¡Gana la Mafia!"
       : winner === "ciudad"
       ? "🏘️ ¡Gana la Ciudad!"
+      : winner === "bufon"
+      ? "🃏 ¡Gana el Bufón!"
       : "🤝 Empate — nadie quedó en pie";
   const rosterHtml = (roster || [])
     .map(
@@ -272,14 +499,38 @@ function gameOverFinalHtml(winner, roster) {
     <h1>${title}</h1>
     <p class="subtitle">La partida terminó. Estos eran los roles de todos:</p>
     <div class="roles-catalog">${rosterHtml}</div>
+    <button id="restartBtn" class="advance-btn">🔁 Reiniciar partida (misma sala)</button>
+    <p id="restartError" class="error"></p>
   `;
+}
+
+// Engancha el botón de reinicio de gameOverFinalHtml — se llama después de
+// cada lugar donde esa pantalla queda pintada en el DOM (playNarrative la
+// reemplaza por innerHTML, así que el listener anterior no sobrevive).
+function attachRestartHandler() {
+  document.getElementById("restartBtn")?.addEventListener("click", () => {
+    socket.emit("game:restart", null, (res) => {
+      if (!res.ok) {
+        const el = document.getElementById("restartError");
+        if (el) el.textContent = res.error;
+      }
+    });
+  });
 }
 
 // Fin de partida disparado por un kick (no por una resolución de noche/día):
 // no es un "momento" de la ficción del juego, así que va directo al
 // resultado final sin la secuencia narrativa.
 socket.on("game:over", ({ winner, roster }) => {
+  playGameOverSting(winner);
   renderScreen(gameOverFinalHtml(winner, roster));
+  attachRestartHandler();
+});
+
+// La pantalla vuelve al lobby de la misma sala después de un reinicio.
+socket.on("game:restarted", () => {
+  window.speechSynthesis?.cancel();
+  renderLobbyShell(currentRoomCode);
 });
 
 socket.on("night:begin", ({ number, players }) => {
@@ -296,9 +547,10 @@ socket.on("night:begin", ({ number, players }) => {
   `);
 
   timerFormat = (s) => `⏳ ${s}s para que todos decidan`;
+  speak(`Cae la noche número ${number}. Todos deciden en su celular.`);
 });
 
-socket.on("night:resolved", ({ number, deaths, saved, winner, roster }) => {
+socket.on("night:resolved", ({ number, deaths, transformations, saved, winner, roster }) => {
   const steps = [
     { html: narrativeBeat("🌫️", "La niebla se aferra al pueblo mientras la noche cae sobre todos...") },
     { html: narrativeBeat("🐺", "Entre las sombras, la Mafia acecha en silencio...") },
@@ -320,6 +572,7 @@ socket.on("night:resolved", ({ number, deaths, saved, winner, roster }) => {
       {
         html: narrativeBeat("💀", `...y el amanecer llega sin <strong>${victim.name}</strong>.`),
         delayMs: 2600,
+        sfx: "death",
       }
     );
     rest.forEach((extra) => {
@@ -331,9 +584,24 @@ socket.on("night:resolved", ({ number, deaths, saved, winner, roster }) => {
           `Pero antes de caer, algo se despierta... y arrastra también a <strong>${extra.icon} ${extra.name}</strong>.`
         ),
         delayMs: 2600,
+        sfx: "death",
       });
     });
   }
+
+  // Alguien sobrevivió a un ataque que debería haberlo matado — evento
+  // observable en la ficción (a diferencia de reveals/silencios, que son
+  // secretos y nunca llegan a la pantalla compartida).
+  (transformations || []).forEach((t) => {
+    steps.push({
+      html: narrativeBeat(
+        "🐺",
+        `¡<strong>${t.icon} ${t.name}</strong> no pudo ser abatido/a! Algo despierta en su interior... y ahora corre con la Mafia.`
+      ),
+      delayMs: 2600,
+      sfx: "ominous",
+    });
+  });
 
   let finalHtml;
   if (deaths.length === 0) {
@@ -360,7 +628,10 @@ socket.on("night:resolved", ({ number, deaths, saved, winner, roster }) => {
   if (winner) {
     steps.push({ html: gameOverBeat(winner), delayMs: 2600 });
     finalHtml = gameOverFinalHtml(winner, roster);
-    playNarrative(steps, finalHtml); // sin onDone: acá termina la partida
+    playNarrative(steps, finalHtml, () => {
+      playGameOverSting(winner);
+      attachRestartHandler();
+    });
   } else {
     playNarrative(steps, finalHtml, () => socket.emit("day:advance"));
   }
@@ -380,6 +651,7 @@ socket.on("day:discussion", ({ number, players }) => {
   document.getElementById("advanceBtn").addEventListener("click", () => {
     socket.emit("day:advance");
   });
+  speak("Comienza la discusión del día.");
 });
 
 socket.on("day:voting", ({ players }) => {
@@ -390,6 +662,7 @@ socket.on("day:voting", ({ players }) => {
     <p class="night-timer" id="timerDisplay"></p>
   `);
   timerFormat = (s) => `⏳ ${s}s para votar`;
+  speak("Es hora de votar.");
 });
 
 socket.on("day:votingProgress", ({ votedIds }) => {
@@ -423,6 +696,7 @@ socket.on("day:defense", ({ accused, results }) => {
   document.getElementById("advanceBtn").addEventListener("click", () => {
     socket.emit("day:advance");
   });
+  speak(`${accused.name} tiene la palabra para defenderse.`);
 });
 
 socket.on("day:trial", ({ accused }) => {
@@ -434,6 +708,7 @@ socket.on("day:trial", ({ accused }) => {
     <p class="night-timer" id="timerDisplay"></p>
   `);
   timerFormat = (s) => `⏳ ${s}s para el veredicto`;
+  speak(`¿Es ${accused.name} culpable o inocente?`);
 });
 
 socket.on("day:verdictProgress", ({ votedIds }) => {
@@ -441,13 +716,16 @@ socket.on("day:verdictProgress", ({ votedIds }) => {
   if (el) el.textContent = `Votaron ${votedIds.length}...`;
 });
 
-socket.on("day:resolved", ({ executed, guiltyCount, innocentCount, accused, deaths, winner, roster }) => {
+socket.on("day:resolved", ({ executed, guiltyCount, innocentCount, accused, deaths, transformations, winner, roster }) => {
   const steps = [
     { html: narrativeBeat("⚖️", "El pueblo se reúne bajo el sol para dictar sentencia...") },
     { html: narrativeBeat("🗣️", "Los votos se cuentan, uno por uno...") },
   ];
 
   const revenge = deaths.slice(1); // si el ejecutado era el Cazador, se lleva a alguien más
+  // El Lycan sobrevive a su propia ejecución (ver killPlayer en server.js) —
+  // si es el caso, "executed" sigue en true pero nadie murió realmente.
+  const accusedTransformed = (transformations || []).some((t) => t.id === accused.id);
 
   if (executed) {
     steps.push({
@@ -456,6 +734,7 @@ socket.on("day:resolved", ({ executed, guiltyCount, innocentCount, accused, deat
         `<strong>${accused.icon} ${accused.name}</strong> es declarado/a culpable... y ejecutado/a ante la mirada de todos.`
       ),
       delayMs: 2600,
+      sfx: "death",
     });
     revenge.forEach((extra) => {
       steps.push({
@@ -464,6 +743,7 @@ socket.on("day:resolved", ({ executed, guiltyCount, innocentCount, accused, deat
           `Pero antes de caer, algo se despierta... y arrastra también a <strong>${extra.icon} ${extra.name}</strong>.`
         ),
         delayMs: 2600,
+        sfx: "death",
       });
     });
   } else {
@@ -476,6 +756,17 @@ socket.on("day:resolved", ({ executed, guiltyCount, innocentCount, accused, deat
     });
   }
 
+  (transformations || []).forEach((t) => {
+    steps.push({
+      html: narrativeBeat(
+        "🐺",
+        `¡<strong>${t.icon} ${t.name}</strong> no pudo ser abatido/a! Algo despierta en su interior... y ahora corre con la Mafia.`
+      ),
+      delayMs: 2600,
+      sfx: "ominous",
+    });
+  });
+
   const extraDeathsHtml = revenge.length
     ? `<ul class="death-list">${revenge
         .map((d) => `<li>💀 <span class="death-icon">${d.icon}</span> <strong>${d.name}</strong> también murió.</li>`)
@@ -486,7 +777,9 @@ socket.on("day:resolved", ({ executed, guiltyCount, innocentCount, accused, deat
     <h1>⚰️ Veredicto</h1>
     <p class="subtitle">
       ${
-        executed
+        executed && accusedTransformed
+          ? `🐺 <span class="accused-icon">${accused.icon}</span> <strong>${accused.name}</strong> sobrevivió a la ejecución... y ahora es parte de la Mafia.`
+          : executed
           ? `💀 <span class="accused-icon">${accused.icon}</span> <strong>${accused.name}</strong> fue ejecutado/a.`
           : `✅ <span class="accused-icon">${accused.icon}</span> <strong>${accused.name}</strong> fue absuelto/a. Sigue en el juego.`
       }
@@ -498,7 +791,10 @@ socket.on("day:resolved", ({ executed, guiltyCount, innocentCount, accused, deat
   if (winner) {
     steps.push({ html: gameOverBeat(winner), delayMs: 2600 });
     finalHtml = gameOverFinalHtml(winner, roster);
-    playNarrative(steps, finalHtml); // sin onDone: acá termina la partida
+    playNarrative(steps, finalHtml, () => {
+      playGameOverSting(winner);
+      attachRestartHandler();
+    });
   } else {
     playNarrative(steps, finalHtml, () => socket.emit("day:advance"));
   }
