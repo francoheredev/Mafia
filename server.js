@@ -116,9 +116,9 @@ function aliveTargets(room, excludeIds = []) {
 
 // La Mafia rota quién de ellos decide la víctima cada noche.
 function pickLeader(room) {
-  const order = (room.mafiaOrder || []).filter((id) => room.players[id]?.alive);
+  const order = (room.gameState.mafiaOrder || []).filter((id) => room.players[id]?.alive);
   if (order.length === 0) return null;
-  const idx = (room.night.number - 1) % order.length;
+  const idx = (room.gameState.night.number - 1) % order.length;
   return order[idx];
 }
 
@@ -128,7 +128,7 @@ function pickLeader(room) {
 // queda "congelado" (connected:false) pero sigue alive:true, así que hay
 // que chequear ambos acá para no filtrar a alguien que ya se fue.
 function broadcastMafiaSuggestions(io, room) {
-  const suggestions = Object.entries(room.night.mafiaSuggestions)
+  const suggestions = Object.entries(room.gameState.night.mafiaSuggestions)
     .filter(([voterId, targetId]) => {
       const voter = room.players[voterId];
       if (!voter?.alive || !voter?.connected) return false;
@@ -144,10 +144,10 @@ function broadcastMafiaSuggestions(io, room) {
       targetIcon: targetId ? room.players[targetId].icon : null,
     }));
 
-  Object.keys(room.assignment)
+  Object.keys(room.gameState.assignment)
     .filter(
       (id) =>
-        room.assignment[id]?.team === "mafia" && room.players[id]?.alive && room.players[id]?.connected
+        room.gameState.assignment[id]?.team === "mafia" && room.players[id]?.alive && room.players[id]?.connected
     )
     .forEach((id) => io.to(id).emit("night:mafiaSuggestions", { suggestions }));
 }
@@ -158,7 +158,7 @@ function broadcastMafiaSuggestions(io, room) {
 // con el tiempo restante — solo a la pantalla, que es la única que lo
 // muestra (el celular nunca tiene cronómetro, a propósito). Devuelve un
 // handle de setInterval que se guarda y cancela exactamente igual que los
-// setTimeout de siempre (room.night.timer / room.day.timer — en Node,
+// setTimeout de siempre (room.gameState.night.timer / room.gameState.day.timer — en Node,
 // clearTimeout funciona igual sobre un handle de setInterval).
 function startTimer(io, roomCode, room, durationMs, onExpire) {
   const deadline = Date.now() + durationMs;
@@ -176,9 +176,9 @@ function startTimer(io, roomCode, room, durationMs, onExpire) {
 }
 
 function startNight(io, room, roomCode) {
-  const number = (room.night?.number || 0) + 1;
+  const number = (room.gameState.night?.number || 0) + 1;
   room.phase = "night";
-  room.night = {
+  room.gameState.night = {
     number,
     leaderId: null,
     mafiaTargetId: null,
@@ -194,7 +194,7 @@ function startNight(io, room, roomCode) {
     carniceroSubmitted: false,
     earlyResolveScheduled: false,
   };
-  room.night.leaderId = pickLeader(room);
+  room.gameState.night.leaderId = pickLeader(room);
 
   const aliveIds = getAliveIds(room);
   const targets = aliveTargets(room);
@@ -203,15 +203,15 @@ function startNight(io, room, roomCode) {
   pushHistory(io, room, roomCode, "🌙", `Cae la noche #${number}.`);
 
   aliveIds.forEach((id) => {
-    const r = room.assignment[id];
+    const r = room.gameState.assignment[id];
     if (!r) return;
 
     if (r.team === "mafia") {
-      const isLeader = id === room.night.leaderId;
+      const isLeader = id === room.gameState.night.leaderId;
       io.to(id).emit("night:mafiaTurn", {
         isLeader,
-        leaderName: room.players[room.night.leaderId]?.name,
-        targets: targets.filter((t) => room.assignment[t.id]?.team !== "mafia"),
+        leaderName: room.players[room.gameState.night.leaderId]?.name,
+        targets: targets.filter((t) => room.gameState.assignment[t.id]?.team !== "mafia"),
       });
       // Bruja/Carnicero tienen, además del voto colectivo de arriba, un
       // poder nocturno propio — se manda como un evento aparte (no
@@ -229,9 +229,9 @@ function startNight(io, room, roomCode) {
     }
   });
 
-  room.night.deadline = Date.now() + NIGHT_TIMEOUT_MS;
-  clearTimeout(room.night.timer);
-  room.night.timer = startTimer(io, roomCode, room, NIGHT_TIMEOUT_MS, () =>
+  room.gameState.night.deadline = Date.now() + NIGHT_TIMEOUT_MS;
+  clearTimeout(room.gameState.night.timer);
+  room.gameState.night.timer = startTimer(io, roomCode, room, NIGHT_TIMEOUT_MS, () =>
     resolveNight(io, room, roomCode)
   );
 }
@@ -241,16 +241,16 @@ function startNight(io, room, roomCode) {
 // Médico ya murieron, no hace falta esperarlos.
 function allNightActionsSubmitted(room) {
   const aliveIds = getAliveIds(room);
-  const hasDetective = aliveIds.some((id) => room.assignment[id]?.roleId === "detective");
-  const hasMedico = aliveIds.some((id) => room.assignment[id]?.roleId === "medico");
-  const hasBruja = aliveIds.some((id) => room.assignment[id]?.roleId === "bruja");
-  const hasCarnicero = aliveIds.some((id) => room.assignment[id]?.roleId === "carnicero");
+  const hasDetective = aliveIds.some((id) => room.gameState.assignment[id]?.roleId === "detective");
+  const hasMedico = aliveIds.some((id) => room.gameState.assignment[id]?.roleId === "medico");
+  const hasBruja = aliveIds.some((id) => room.gameState.assignment[id]?.roleId === "bruja");
+  const hasCarnicero = aliveIds.some((id) => room.gameState.assignment[id]?.roleId === "carnicero");
 
-  if (room.night.leaderId && !room.night.mafiaSubmitted) return false;
-  if (hasDetective && !room.night.detectiveSubmitted) return false;
-  if (hasMedico && !room.night.medicoSubmitted) return false;
-  if (hasBruja && !room.night.brujaSubmitted) return false;
-  if (hasCarnicero && !room.night.carniceroSubmitted) return false;
+  if (room.gameState.night.leaderId && !room.gameState.night.mafiaSubmitted) return false;
+  if (hasDetective && !room.gameState.night.detectiveSubmitted) return false;
+  if (hasMedico && !room.gameState.night.medicoSubmitted) return false;
+  if (hasBruja && !room.gameState.night.brujaSubmitted) return false;
+  if (hasCarnicero && !room.gameState.night.carniceroSubmitted) return false;
   return true;
 }
 
@@ -258,15 +258,15 @@ function allNightActionsSubmitted(room) {
 // NIGHT_TIMEOUT_MS y deja solo un margen corto (NIGHT_EARLY_RESOLVE_MS) para
 // que el Vidente alcance a leer su resultado antes de pasar al amanecer.
 function maybeShortenNight(io, room, roomCode) {
-  if (room.night.earlyResolveScheduled) return;
+  if (room.gameState.night.earlyResolveScheduled) return;
   if (!allNightActionsSubmitted(room)) return;
-  room.night.earlyResolveScheduled = true;
+  room.gameState.night.earlyResolveScheduled = true;
 
-  const remaining = Math.max(room.night.deadline - Date.now(), 0);
+  const remaining = Math.max(room.gameState.night.deadline - Date.now(), 0);
   const delay = Math.min(NIGHT_EARLY_RESOLVE_MS, remaining);
 
-  clearTimeout(room.night.timer);
-  room.night.timer = startTimer(io, roomCode, room, delay, () => resolveNight(io, room, roomCode));
+  clearTimeout(room.gameState.night.timer);
+  room.gameState.night.timer = startTimer(io, roomCode, room, delay, () => resolveNight(io, room, roomCode));
 }
 
 // Si matan al Cazador, dispara al azar contra otro jugador vivo (GDD: habilidad al morir).
@@ -280,12 +280,12 @@ function maybeShortenNight(io, room, roomCode) {
 // Cazador, esa muerte en cadena sí puede transformar a un Lycan).
 function killPlayer(room, id, deaths, transformations, options = {}) {
   if (!room.players[id]?.alive) return;
-  const role = room.assignment[id];
+  const role = room.gameState.assignment[id];
 
   if (role?.roleId === "lycan" && role.team !== "mafia" && !options.bypassLycan) {
     role.team = "mafia";
-    room.mafiaOrder = room.mafiaOrder || [];
-    if (!room.mafiaOrder.includes(id)) room.mafiaOrder.push(id);
+    room.gameState.mafiaOrder = room.gameState.mafiaOrder || [];
+    if (!room.gameState.mafiaOrder.includes(id)) room.gameState.mafiaOrder.push(id);
     transformations.push(id);
     return;
   }
@@ -309,19 +309,19 @@ function killPlayer(room, id, deaths, transformations, options = {}) {
 // propio jugador necesita enterarse de que ahora juega para otro equipo.
 function applyLycanTransformSideEffects(io, room, id) {
   const playerNames = {};
-  Object.keys(room.assignment).forEach((pid) => {
+  Object.keys(room.gameState.assignment).forEach((pid) => {
     playerNames[pid] = room.players[pid]?.name;
   });
 
-  Object.keys(room.assignment)
-    .filter((pid) => room.assignment[pid]?.team === "mafia" && room.players[pid]?.alive)
+  Object.keys(room.gameState.assignment)
+    .filter((pid) => room.gameState.assignment[pid]?.team === "mafia" && room.players[pid]?.alive)
     .forEach((pid) => {
       io.to(pid).emit("mafia:teamUpdate", {
-        accomplices: getMafiaAccomplices(room.assignment, pid, playerNames),
+        accomplices: getMafiaAccomplices(room.gameState.assignment, pid, playerNames),
       });
     });
 
-  const r = room.assignment[id];
+  const r = room.gameState.assignment[id];
   io.to(id).emit("role:transformed", {
     roleId: r.roleId,
     name: r.name,
@@ -329,7 +329,7 @@ function applyLycanTransformSideEffects(io, room, id) {
     team: r.team,
     description: r.description,
     icon: r.icon,
-    accomplices: getMafiaAccomplices(room.assignment, id, playerNames),
+    accomplices: getMafiaAccomplices(room.gameState.assignment, id, playerNames),
   });
 }
 
@@ -342,7 +342,7 @@ function applyLycanTransformSideEffects(io, room, id) {
 // null = seguir jugando.
 function checkWinner(room) {
   const aliveIds = getAliveIds(room);
-  const mafiaCount = aliveIds.filter((id) => room.assignment[id]?.team === "mafia").length;
+  const mafiaCount = aliveIds.filter((id) => room.gameState.assignment[id]?.team === "mafia").length;
   const goodCount = aliveIds.length - mafiaCount;
 
   if (mafiaCount === 0 && goodCount === 0) return "draw";
@@ -355,23 +355,23 @@ function checkWinner(room) {
 // partida — a diferencia de una muerte puntual, el cierre del juego sí
 // muestra quién era quién.
 function buildFinalRoster(room) {
-  return Object.keys(room.assignment).map((id) => ({
+  return Object.keys(room.gameState.assignment).map((id) => ({
     id,
     name: room.players[id]?.name,
     icon: room.players[id]?.icon,
     alive: Boolean(room.players[id]?.alive),
-    narrativeName: room.assignment[id].narrativeName,
-    team: room.assignment[id].team,
+    narrativeName: room.gameState.assignment[id].narrativeName,
+    team: room.gameState.assignment[id].team,
   }));
 }
 
 function resolveNight(io, room, roomCode) {
   if (room.phase !== "night") return; // ya se resolvió (evita doble resolución con el timeout)
-  clearTimeout(room.night.timer);
+  clearTimeout(room.gameState.night.timer);
   room.phase = "dawn";
 
-  const victimId = room.night.mafiaTargetId;
-  const saved = Boolean(victimId && victimId === room.night.medicoTargetId);
+  const victimId = room.gameState.night.mafiaTargetId;
+  const saved = Boolean(victimId && victimId === room.gameState.night.medicoTargetId);
 
   const deaths = [];
   const transformations = [];
@@ -381,7 +381,7 @@ function resolveNight(io, room, roomCode) {
   const winner = checkWinner(room);
 
   io.to(roomCode).emit("night:resolved", {
-    number: room.night.number,
+    number: room.gameState.night.number,
     saved,
     // No se revela el rol de quien murió — solo que murió (ver GDD: eso
     // se discute/descubre durante el Día, no lo anuncia el sistema).
@@ -414,23 +414,23 @@ function resolveNight(io, room, roomCode) {
     return;
   }
 
-  clearTimeout(room.night.timer);
-  room.night.timer = setTimeout(() => startDiscussion(io, room, roomCode), NIGHT_RESULT_MS);
+  clearTimeout(room.gameState.night.timer);
+  room.gameState.night.timer = setTimeout(() => startDiscussion(io, room, roomCode), NIGHT_RESULT_MS);
 }
 
 // --- Ciclo Día ---
 
 function startDiscussion(io, room, roomCode) {
-  const number = (room.day?.number || 0) + 1;
-  // El silencio del Carnicero se calcula ANTES de pisar room.night (todavía
+  const number = (room.gameState.day?.number || 0) + 1;
+  // El silencio del Carnicero se calcula ANTES de pisar room.gameState.night (todavía
   // es la de la noche que recién terminó) y dura un solo Día: se recalcula
   // de cero cada vez que se llama a esta función.
   const silencedId =
-    room.night?.carniceroTargetId && room.players[room.night.carniceroTargetId]?.alive
-      ? room.night.carniceroTargetId
+    room.gameState.night?.carniceroTargetId && room.players[room.gameState.night.carniceroTargetId]?.alive
+      ? room.gameState.night.carniceroTargetId
       : null;
   room.phase = "day-discussion";
-  room.day = { number, timer: null, nominations: {}, accusedId: null, verdicts: {}, silencedId };
+  room.gameState.day = { number, timer: null, nominations: {}, accusedId: null, verdicts: {}, silencedId };
 
   const aliveIds = getAliveIds(room);
   const players = aliveTargets(room);
@@ -439,21 +439,21 @@ function startDiscussion(io, room, roomCode) {
   aliveIds.forEach((id) => io.to(id).emit("day:discussionPhone", {}));
   pushHistory(io, room, roomCode, "💬", `Comienza la discusión del Día #${number}.`);
 
-  clearTimeout(room.day.timer);
-  room.day.timer = startTimer(io, roomCode, room, DISCUSSION_MS, () =>
+  clearTimeout(room.gameState.day.timer);
+  room.gameState.day.timer = startTimer(io, roomCode, room, DISCUSSION_MS, () =>
     startVoting(io, room, roomCode)
   );
 }
 
 function startVoting(io, room, roomCode) {
   if (room.phase !== "day-discussion") return; // ya se avanzó (botón + timeout a la vez)
-  clearTimeout(room.day.timer);
+  clearTimeout(room.gameState.day.timer);
   room.phase = "day-voting";
-  room.day.nominations = {};
+  room.gameState.day.nominations = {};
 
   const aliveIds = getAliveIds(room);
   const targets = aliveTargets(room);
-  const { silencedId } = room.day;
+  const { silencedId } = room.gameState.day;
 
   io.to(roomCode).emit("day:voting", { players: targets });
   aliveIds.forEach((id) => {
@@ -461,33 +461,33 @@ function startVoting(io, room, roomCode) {
       // Silenciado por el Carnicero anoche: no puede votar hoy — se le
       // registra la abstención de una para no trabar el conteo de
       // "¿ya votaron todos?" (ver maybeResolveVoting).
-      room.day.nominations[id] = null;
+      room.gameState.day.nominations[id] = null;
       io.to(id).emit("day:silenced", {});
     } else {
       io.to(id).emit("day:yourVote", { targets: targets.filter((t) => t.id !== id) });
     }
   });
 
-  clearTimeout(room.day.timer);
-  room.day.timer = startTimer(io, roomCode, room, VOTING_MS, () =>
+  clearTimeout(room.gameState.day.timer);
+  room.gameState.day.timer = startTimer(io, roomCode, room, VOTING_MS, () =>
     resolveVoting(io, room, roomCode)
   );
 }
 
 function broadcastVotingProgress(io, room, roomCode) {
-  io.to(roomCode).emit("day:votingProgress", { votedIds: Object.keys(room.day.nominations) });
+  io.to(roomCode).emit("day:votingProgress", { votedIds: Object.keys(room.gameState.day.nominations) });
 }
 
 function maybeResolveVoting(io, room, roomCode) {
   const activeCount = getActiveIds(room).length;
-  if (Object.keys(room.day.nominations).length >= activeCount) resolveVoting(io, room, roomCode);
+  if (Object.keys(room.gameState.day.nominations).length >= activeCount) resolveVoting(io, room, roomCode);
 }
 
 // El Intendente vale doble en cualquier conteo de votos (acusación y
-// juicio) — su peso se lee en vivo de room.assignment, no hay que guardarlo
+// juicio) — su peso se lee en vivo de room.gameState.assignment, no hay que guardarlo
 // aparte por voto.
 function voteWeight(room, voterId) {
-  return room.assignment[voterId]?.voteWeight || 1;
+  return room.gameState.assignment[voterId]?.voteWeight || 1;
 }
 
 function tallyVotes(room, votesObj) {
@@ -501,9 +501,9 @@ function tallyVotes(room, votesObj) {
 
 function resolveVoting(io, room, roomCode) {
   if (room.phase !== "day-voting") return;
-  clearTimeout(room.day.timer);
+  clearTimeout(room.gameState.day.timer);
 
-  const tally = tallyVotes(room, room.day.nominations);
+  const tally = tallyVotes(room, room.gameState.day.nominations);
   const entries = Object.entries(tally).sort((a, b) => b[1] - a[1]);
   const top = entries[0];
 
@@ -518,8 +518,8 @@ function resolveVoting(io, room, roomCode) {
     room.phase = "day-resolved";
     io.to(roomCode).emit("day:noAccusation", { results });
     pushHistory(io, room, roomCode, "🤝", "Nadie fue acusado hoy.");
-    clearTimeout(room.day.timer);
-    room.day.timer = setTimeout(() => startNight(io, room, roomCode), DAY_RESULT_MS);
+    clearTimeout(room.gameState.day.timer);
+    room.gameState.day.timer = setTimeout(() => startNight(io, room, roomCode), DAY_RESULT_MS);
     return;
   }
 
@@ -530,19 +530,19 @@ function resolveVoting(io, room, roomCode) {
   const tiedIds = entries.filter(([, votes]) => votes === top[1]).map(([id]) => id);
   if (tiedIds.length > 1) {
     const drawnId = tiedIds[Math.floor(Math.random() * tiedIds.length)];
-    room.day.accusedId = drawnId;
+    room.gameState.day.accusedId = drawnId;
     pushHistory(io, room, roomCode, "🎲", `Hubo un empate en la votación — el azar señaló a ${room.players[drawnId].name}.`);
     startDefense(io, room, roomCode, results);
     return;
   }
 
-  room.day.accusedId = top[0];
+  room.gameState.day.accusedId = top[0];
   startDefense(io, room, roomCode, results);
 }
 
 function startDefense(io, room, roomCode, votingResults) {
   room.phase = "day-defense";
-  const accusedId = room.day.accusedId;
+  const accusedId = room.gameState.day.accusedId;
 
   io.to(roomCode).emit("day:defense", {
     accused: {
@@ -561,19 +561,19 @@ function startDefense(io, room, roomCode, votingResults) {
     );
   pushHistory(io, room, roomCode, "⚖️", `${room.players[accusedId].name} fue acusado/a y va a juicio.`);
 
-  clearTimeout(room.day.timer);
-  room.day.timer = startTimer(io, roomCode, room, DEFENSE_MS, () =>
+  clearTimeout(room.gameState.day.timer);
+  room.gameState.day.timer = startTimer(io, roomCode, room, DEFENSE_MS, () =>
     startTrial(io, room, roomCode)
   );
 }
 
 function startTrial(io, room, roomCode) {
   if (room.phase !== "day-defense") return; // ya se avanzó (botón + timeout a la vez)
-  clearTimeout(room.day.timer);
+  clearTimeout(room.gameState.day.timer);
   room.phase = "day-trial";
-  room.day.verdicts = {};
+  room.gameState.day.verdicts = {};
 
-  const accusedId = room.day.accusedId;
+  const accusedId = room.gameState.day.accusedId;
   const voterIds = getAliveIds(room).filter((id) => id !== accusedId);
 
   io.to(roomCode).emit("day:trial", {
@@ -586,27 +586,27 @@ function startTrial(io, room, roomCode) {
   voterIds.forEach((id) => io.to(id).emit("day:yourVerdict", {}));
   io.to(accusedId).emit("day:waitVerdict", {});
 
-  clearTimeout(room.day.timer);
-  room.day.timer = startTimer(io, roomCode, room, TRIAL_MS, () =>
+  clearTimeout(room.gameState.day.timer);
+  room.gameState.day.timer = startTimer(io, roomCode, room, TRIAL_MS, () =>
     resolveTrial(io, room, roomCode)
   );
 }
 
 function maybeResolveTrial(io, room, roomCode) {
-  const activeVoterCount = getActiveIds(room).filter((id) => id !== room.day.accusedId).length;
-  if (Object.keys(room.day.verdicts).length >= activeVoterCount) resolveTrial(io, room, roomCode);
+  const activeVoterCount = getActiveIds(room).filter((id) => id !== room.gameState.day.accusedId).length;
+  if (Object.keys(room.gameState.day.verdicts).length >= activeVoterCount) resolveTrial(io, room, roomCode);
 }
 
 function resolveTrial(io, room, roomCode) {
   if (room.phase !== "day-trial") return;
-  clearTimeout(room.day.timer);
+  clearTimeout(room.gameState.day.timer);
   room.phase = "day-resolved";
 
-  const accusedId = room.day.accusedId;
+  const accusedId = room.gameState.day.accusedId;
   // Igual que en la votación de acusación, el Intendente pesa doble acá también.
   let guiltyCount = 0;
   let innocentCount = 0;
-  Object.entries(room.day.verdicts).forEach(([voterId, verdict]) => {
+  Object.entries(room.gameState.day.verdicts).forEach(([voterId, verdict]) => {
     const weight = voteWeight(room, voterId);
     if (verdict === "guilty") guiltyCount += weight;
     else if (verdict === "innocent") innocentCount += weight;
@@ -614,7 +614,7 @@ function resolveTrial(io, room, roomCode) {
   const executed = guiltyCount > innocentCount;
   // El Bufón gana en el momento en que el pueblo logra votarlo y ejecutarlo
   // — es una victoria propia, independiente del conteo binario Mafia/Ciudad.
-  const wasBufon = executed && room.assignment[accusedId]?.roleId === "bufon";
+  const wasBufon = executed && room.gameState.assignment[accusedId]?.roleId === "bufon";
 
   const deaths = [];
   const transformations = [];
@@ -668,30 +668,30 @@ function resolveTrial(io, room, roomCode) {
     return;
   }
 
-  clearTimeout(room.day.timer);
-  room.day.timer = setTimeout(() => startNight(io, room, roomCode), DAY_RESULT_MS);
+  clearTimeout(room.gameState.day.timer);
+  room.gameState.day.timer = setTimeout(() => startNight(io, room, roomCode), DAY_RESULT_MS);
 }
 
 // Cada jugador se identifica solo por su socket.id, que cambia al
 // reconectar — así que un rejoin exitoso tiene que "mudar" ese id viejo al
 // nuevo en TODAS las estructuras de la sala que puedan referenciarlo, tanto
 // como clave como como valor. Repasar esta lista si se agrega un campo
-// nuevo a room.night/room.day que guarde un id de jugador.
+// nuevo a room.gameState.night/room.gameState.day que guarde un id de jugador.
 function remapPlayerId(room, oldId, newId) {
   room.players[newId] = room.players[oldId];
   delete room.players[oldId];
 
-  if (room.assignment && room.assignment[oldId]) {
-    room.assignment[newId] = room.assignment[oldId];
-    delete room.assignment[oldId];
+  if (room.gameState.assignment && room.gameState.assignment[oldId]) {
+    room.gameState.assignment[newId] = room.gameState.assignment[oldId];
+    delete room.gameState.assignment[oldId];
   }
 
-  if (room.mafiaOrder) {
-    room.mafiaOrder = room.mafiaOrder.map((id) => (id === oldId ? newId : id));
+  if (room.gameState.mafiaOrder) {
+    room.gameState.mafiaOrder = room.gameState.mafiaOrder.map((id) => (id === oldId ? newId : id));
   }
 
-  if (room.loversIds) {
-    room.loversIds = room.loversIds.map((id) => (id === oldId ? newId : id));
+  if (room.gameState.loversIds) {
+    room.gameState.loversIds = room.gameState.loversIds.map((id) => (id === oldId ? newId : id));
   }
 
   if (room.chat) {
@@ -702,35 +702,35 @@ function remapPlayerId(room, oldId, newId) {
     });
   }
 
-  if (room.night) {
-    if (room.night.leaderId === oldId) room.night.leaderId = newId;
-    if (room.night.mafiaTargetId === oldId) room.night.mafiaTargetId = newId;
-    if (room.night.detectiveTargetId === oldId) room.night.detectiveTargetId = newId;
-    if (room.night.medicoTargetId === oldId) room.night.medicoTargetId = newId;
-    if (room.night.brujaTargetId === oldId) room.night.brujaTargetId = newId;
-    if (room.night.carniceroTargetId === oldId) room.night.carniceroTargetId = newId;
-    if (room.night.mafiaSuggestions) {
+  if (room.gameState.night) {
+    if (room.gameState.night.leaderId === oldId) room.gameState.night.leaderId = newId;
+    if (room.gameState.night.mafiaTargetId === oldId) room.gameState.night.mafiaTargetId = newId;
+    if (room.gameState.night.detectiveTargetId === oldId) room.gameState.night.detectiveTargetId = newId;
+    if (room.gameState.night.medicoTargetId === oldId) room.gameState.night.medicoTargetId = newId;
+    if (room.gameState.night.brujaTargetId === oldId) room.gameState.night.brujaTargetId = newId;
+    if (room.gameState.night.carniceroTargetId === oldId) room.gameState.night.carniceroTargetId = newId;
+    if (room.gameState.night.mafiaSuggestions) {
       const remapped = {};
-      Object.entries(room.night.mafiaSuggestions).forEach(([voterId, targetId]) => {
+      Object.entries(room.gameState.night.mafiaSuggestions).forEach(([voterId, targetId]) => {
         remapped[voterId === oldId ? newId : voterId] = targetId === oldId ? newId : targetId;
       });
-      room.night.mafiaSuggestions = remapped;
+      room.gameState.night.mafiaSuggestions = remapped;
     }
   }
 
-  if (room.day) {
-    if (room.day.accusedId === oldId) room.day.accusedId = newId;
-    if (room.day.silencedId === oldId) room.day.silencedId = newId;
-    if (room.day.nominations) {
+  if (room.gameState.day) {
+    if (room.gameState.day.accusedId === oldId) room.gameState.day.accusedId = newId;
+    if (room.gameState.day.silencedId === oldId) room.gameState.day.silencedId = newId;
+    if (room.gameState.day.nominations) {
       const remapped = {};
-      Object.entries(room.day.nominations).forEach(([voterId, targetId]) => {
+      Object.entries(room.gameState.day.nominations).forEach(([voterId, targetId]) => {
         remapped[voterId === oldId ? newId : voterId] = targetId === oldId ? newId : targetId;
       });
-      room.day.nominations = remapped;
+      room.gameState.day.nominations = remapped;
     }
-    if (room.day.verdicts && oldId in room.day.verdicts) {
-      room.day.verdicts[newId] = room.day.verdicts[oldId];
-      delete room.day.verdicts[oldId];
+    if (room.gameState.day.verdicts && oldId in room.gameState.day.verdicts) {
+      room.gameState.day.verdicts[newId] = room.gameState.day.verdicts[oldId];
+      delete room.gameState.day.verdicts[oldId];
     }
   }
 }
@@ -741,22 +741,22 @@ function remapPlayerId(room, oldId, newId) {
 function sendCurrentPhaseState(io, room, roomCode, playerId) {
   const player = room.players[playerId];
   if (!player || !room.started || !player.alive) return;
-  const myRole = room.assignment[playerId];
+  const myRole = room.gameState.assignment[playerId];
   if (!myRole) return;
 
   switch (room.phase) {
     case "night":
       if (myRole.team === "mafia") {
         io.to(playerId).emit("night:mafiaTurn", {
-          isLeader: playerId === room.night.leaderId,
-          leaderName: room.players[room.night.leaderId]?.name,
-          targets: aliveTargets(room).filter((t) => room.assignment[t.id]?.team !== "mafia"),
+          isLeader: playerId === room.gameState.night.leaderId,
+          leaderName: room.players[room.gameState.night.leaderId]?.name,
+          targets: aliveTargets(room).filter((t) => room.gameState.assignment[t.id]?.team !== "mafia"),
         });
         broadcastMafiaSuggestions(io, room);
         if (myRole.mafiaPower) {
           const alreadySubmitted =
-            (myRole.roleId === "bruja" && room.night.brujaSubmitted) ||
-            (myRole.roleId === "carnicero" && room.night.carniceroSubmitted);
+            (myRole.roleId === "bruja" && room.gameState.night.brujaSubmitted) ||
+            (myRole.roleId === "carnicero" && room.gameState.night.carniceroSubmitted);
           io.to(playerId).emit("night:mafiaPower", {
             role: myRole.roleId,
             targets: aliveTargets(room),
@@ -765,8 +765,8 @@ function sendCurrentPhaseState(io, room, roomCode, playerId) {
         }
       } else if (myRole.hasNightAction) {
         const alreadySubmitted =
-          (myRole.roleId === "detective" && room.night.detectiveSubmitted) ||
-          (myRole.roleId === "medico" && room.night.medicoSubmitted);
+          (myRole.roleId === "detective" && room.gameState.night.detectiveSubmitted) ||
+          (myRole.roleId === "medico" && room.gameState.night.medicoSubmitted);
         if (alreadySubmitted) {
           io.to(playerId).emit("player:rejoinWaiting", {
             message: "Ya hiciste tu elección de esta noche. Esperando al resto...",
@@ -785,23 +785,23 @@ function sendCurrentPhaseState(io, room, roomCode, playerId) {
       io.to(playerId).emit("day:discussionPhone", {});
       break;
     case "day-voting":
-      if (playerId === room.day.silencedId) {
+      if (playerId === room.gameState.day.silencedId) {
         io.to(playerId).emit("day:silenced", {});
-      } else if (playerId in room.day.nominations) {
+      } else if (playerId in room.gameState.day.nominations) {
         io.to(playerId).emit("player:rejoinWaiting", { message: "Ya votaste. Esperando al resto..." });
       } else {
         io.to(playerId).emit("day:yourVote", { targets: aliveTargets(room, [playerId]) });
       }
       break;
     case "day-defense":
-      if (playerId === room.day.accusedId) io.to(playerId).emit("day:yourDefense", {});
+      if (playerId === room.gameState.day.accusedId) io.to(playerId).emit("day:yourDefense", {});
       else
         io.to(playerId).emit("day:watchDefense", {
-          accusedName: room.players[room.day.accusedId]?.name,
+          accusedName: room.players[room.gameState.day.accusedId]?.name,
         });
       break;
     case "day-trial":
-      if (playerId === room.day.accusedId || playerId in room.day.verdicts) {
+      if (playerId === room.gameState.day.accusedId || playerId in room.gameState.day.verdicts) {
         io.to(playerId).emit("day:waitVerdict", {});
       } else {
         io.to(playerId).emit("day:yourVerdict", {});
@@ -855,8 +855,8 @@ function kickPlayer(io, room, roomCode, targetId) {
 
   const winner = checkWinner(room);
   if (winner) {
-    clearTimeout(room.night?.timer);
-    clearTimeout(room.day?.timer);
+    clearTimeout(room.gameState.night?.timer);
+    clearTimeout(room.gameState.day?.timer);
     room.phase = "game-over";
     io.to(roomCode).emit("game:over", { winner, roster: buildFinalRoster(room) });
     return { ok: true };
@@ -882,9 +882,9 @@ io.on("connection", (socket) => {
       gameId,
       players: {},
       phase: "lobby",
-      loversIds: [],
       chat: { general: [], fantasmas: [] },
       history: [],
+      gameState: { loversIds: [] },
     };
     socket.join(code);
     socket.data.role = "screen";
@@ -962,12 +962,12 @@ io.on("connection", (socket) => {
     }
 
     const assignment = assignRoles(connectedIds);
-    room.assignment = assignment; // queda guardado para las fases de Noche/Día
+    room.gameState.assignment = assignment; // queda guardado para las fases de Noche/Día
     room.started = true;
-    room.mafiaOrder = connectedIds.filter((id) => assignment[id].team === "mafia");
+    room.gameState.mafiaOrder = connectedIds.filter((id) => assignment[id].team === "mafia");
     // Amante es un rol propio (ver roles.js) — los Amantes de esta partida
     // son, directamente, quienes lo recibieron (0 o 2, nunca uno solo).
-    room.loversIds = connectedIds.filter((id) => assignment[id].roleId === "amante");
+    room.gameState.loversIds = connectedIds.filter((id) => assignment[id].roleId === "amante");
     room.history = [];
     connectedIds.forEach((id) => {
       room.players[id].alive = true;
@@ -994,8 +994,8 @@ io.on("connection", (socket) => {
       io.to(id).emit("role:assigned", payload);
     });
 
-    if (room.loversIds.length === 2) {
-      const [idA, idB] = room.loversIds;
+    if (room.gameState.loversIds.length === 2) {
+      const [idA, idB] = room.gameState.loversIds;
       const loverPayload = (selfId, partnerId) => ({
         partner: {
           id: partnerId,
@@ -1029,7 +1029,7 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: "No es de noche." });
       return;
     }
-    const myRole = room.assignment[socket.id];
+    const myRole = room.gameState.assignment[socket.id];
     if (!myRole) {
       ack?.({ ok: false, error: "No tenés un rol asignado." });
       return;
@@ -1045,7 +1045,7 @@ io.on("connection", (socket) => {
         ack?.({ ok: false, error: "No sos de la mafia." });
         return;
       }
-      if (socket.id !== room.night.leaderId) {
+      if (socket.id !== room.gameState.night.leaderId) {
         ack?.({ ok: false, error: "Esta noche no te toca decidir a vos." });
         return;
       }
@@ -1053,28 +1053,28 @@ io.on("connection", (socket) => {
         ack?.({ ok: false, error: "Objetivo inválido." });
         return;
       }
-      if (room.assignment[targetId]?.team === "mafia") {
+      if (room.gameState.assignment[targetId]?.team === "mafia") {
         ack?.({ ok: false, error: "No podés elegir a un cómplice." });
         return;
       }
-      room.night.mafiaTargetId = targetId;
-      room.night.mafiaSubmitted = true;
+      room.gameState.night.mafiaTargetId = targetId;
+      room.gameState.night.mafiaSubmitted = true;
     } else if (role === "detective") {
       if (myRole.roleId !== "detective") {
         ack?.({ ok: false, error: "No sos el Vidente." });
         return;
       }
-      if (room.night.detectiveSubmitted) {
+      if (room.gameState.night.detectiveSubmitted) {
         ack?.({ ok: false, error: "Ya investigaste esta noche." });
         return;
       }
-      const targetRole = room.assignment[targetId];
+      const targetRole = room.gameState.assignment[targetId];
       if (!target?.alive || !targetRole || targetId === socket.id) {
         ack?.({ ok: false, error: "Objetivo inválido." });
         return;
       }
-      room.night.detectiveTargetId = targetId;
-      room.night.detectiveSubmitted = true;
+      room.gameState.night.detectiveTargetId = targetId;
+      room.gameState.night.detectiveSubmitted = true;
 
       // Ajuste del GDD: el Padrino se ve como inocente si lo investigan.
       const isMafia = targetRole.team === "mafia" && targetRole.roleId !== "padrino";
@@ -1087,7 +1087,7 @@ io.on("connection", (socket) => {
         ack?.({ ok: false, error: "No sos el Médico." });
         return;
       }
-      if (room.night.medicoSubmitted) {
+      if (room.gameState.night.medicoSubmitted) {
         ack?.({ ok: false, error: "Ya elegiste a quién proteger." });
         return;
       }
@@ -1095,31 +1095,31 @@ io.on("connection", (socket) => {
         ack?.({ ok: false, error: "Objetivo inválido." });
         return;
       }
-      room.night.medicoTargetId = targetId;
-      room.night.medicoSubmitted = true;
+      room.gameState.night.medicoTargetId = targetId;
+      room.gameState.night.medicoSubmitted = true;
     } else if (role === "bruja") {
       if (myRole.roleId !== "bruja") {
         ack?.({ ok: false, error: "No sos la Bruja." });
         return;
       }
-      if (room.night.brujaSubmitted) {
+      if (room.gameState.night.brujaSubmitted) {
         ack?.({ ok: false, error: "Ya usaste tu poder esta noche." });
         return;
       }
-      const targetRole = room.assignment[targetId];
+      const targetRole = room.gameState.assignment[targetId];
       if (!target?.alive || !targetRole) {
         ack?.({ ok: false, error: "Objetivo inválido." });
         return;
       }
-      room.night.brujaTargetId = targetId;
-      room.night.brujaSubmitted = true;
+      room.gameState.night.brujaTargetId = targetId;
+      room.gameState.night.brujaSubmitted = true;
 
       // Revelación inmediata a TODO el equipo Mafia vivo y conectado (no
       // solo a la Bruja) — nunca a la sala entera, esto es información
       // secreta que jamás debe llegar a la pantalla ni a un no-mafioso.
-      Object.keys(room.assignment)
+      Object.keys(room.gameState.assignment)
         .filter(
-          (id) => room.assignment[id]?.team === "mafia" && room.players[id]?.alive && room.players[id]?.connected
+          (id) => room.gameState.assignment[id]?.team === "mafia" && room.players[id]?.alive && room.players[id]?.connected
         )
         .forEach((id) =>
           io.to(id).emit("night:brujaReveal", {
@@ -1137,7 +1137,7 @@ io.on("connection", (socket) => {
         ack?.({ ok: false, error: "No sos el Carnicero." });
         return;
       }
-      if (room.night.carniceroSubmitted) {
+      if (room.gameState.night.carniceroSubmitted) {
         ack?.({ ok: false, error: "Ya elegiste a quién silenciar." });
         return;
       }
@@ -1145,8 +1145,8 @@ io.on("connection", (socket) => {
         ack?.({ ok: false, error: "Objetivo inválido." });
         return;
       }
-      room.night.carniceroTargetId = targetId;
-      room.night.carniceroSubmitted = true;
+      room.gameState.night.carniceroTargetId = targetId;
+      room.gameState.night.carniceroSubmitted = true;
       // El efecto (no poder votar) se aplica recién al Día siguiente — ver startDiscussion/startVoting.
     } else {
       ack?.({ ok: false, error: "Acción desconocida." });
@@ -1170,7 +1170,7 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: "No es de noche." });
       return;
     }
-    const myRole = room.assignment[socket.id];
+    const myRole = room.gameState.assignment[socket.id];
     if (!myRole || myRole.team !== "mafia") {
       ack?.({ ok: false, error: "No sos de la mafia." });
       return;
@@ -1185,12 +1185,12 @@ io.on("connection", (socket) => {
         ack?.({ ok: false, error: "Objetivo inválido." });
         return;
       }
-      if (room.assignment[targetId]?.team === "mafia") {
+      if (room.gameState.assignment[targetId]?.team === "mafia") {
         ack?.({ ok: false, error: "No podés señalar a un cómplice." });
         return;
       }
     }
-    room.night.mafiaSuggestions[socket.id] = targetId; // null = borra la sugerencia
+    room.gameState.night.mafiaSuggestions[socket.id] = targetId; // null = borra la sugerencia
 
     ack?.({ ok: true });
     broadcastMafiaSuggestions(io, room);
@@ -1216,13 +1216,13 @@ io.on("connection", (socket) => {
       ack?.({ ok: true });
     } else if (room.phase === "dawn") {
       // La pantalla terminó de reproducir la narrativa del amanecer.
-      clearTimeout(room.night.timer);
+      clearTimeout(room.gameState.night.timer);
       startDiscussion(io, room, roomCode);
       ack?.({ ok: true });
     } else if (room.phase === "day-resolved") {
       // La pantalla terminó de reproducir la narrativa del veredicto (o de
       // "nadie fue acusado").
-      clearTimeout(room.day.timer);
+      clearTimeout(room.gameState.day.timer);
       startNight(io, room, roomCode);
       ack?.({ ok: true });
     } else {
@@ -1244,11 +1244,11 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: "Estás eliminado, no podés votar." });
       return;
     }
-    if (socket.id === room.day.silencedId) {
+    if (socket.id === room.gameState.day.silencedId) {
       ack?.({ ok: false, error: "Estás silenciado, no podés votar hoy." });
       return;
     }
-    if (socket.id in room.day.nominations) {
+    if (socket.id in room.gameState.day.nominations) {
       ack?.({ ok: false, error: "Ya votaste." });
       return;
     }
@@ -1256,7 +1256,7 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: "Objetivo inválido." });
       return;
     }
-    room.day.nominations[socket.id] = targetId; // null = abstención
+    room.gameState.day.nominations[socket.id] = targetId; // null = abstención
 
     ack?.({ ok: true });
     broadcastVotingProgress(io, room, roomCode);
@@ -1271,7 +1271,7 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: "No es momento de votar el veredicto." });
       return;
     }
-    if (socket.id === room.day.accusedId) {
+    if (socket.id === room.gameState.day.accusedId) {
       ack?.({ ok: false, error: "No podés votar tu propio juicio." });
       return;
     }
@@ -1283,14 +1283,14 @@ io.on("connection", (socket) => {
       ack?.({ ok: false, error: "Veredicto inválido." });
       return;
     }
-    if (socket.id in room.day.verdicts) {
+    if (socket.id in room.gameState.day.verdicts) {
       ack?.({ ok: false, error: "Ya votaste." });
       return;
     }
-    room.day.verdicts[socket.id] = verdict;
+    room.gameState.day.verdicts[socket.id] = verdict;
 
     ack?.({ ok: true });
-    io.to(roomCode).emit("day:verdictProgress", { votedIds: Object.keys(room.day.verdicts) });
+    io.to(roomCode).emit("day:verdictProgress", { votedIds: Object.keys(room.gameState.day.verdicts) });
     maybeResolveTrial(io, room, roomCode);
   });
 
@@ -1332,10 +1332,10 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const r = room.assignment[socket.id];
+    const r = room.gameState.assignment[socket.id];
     if (r) {
       const playerNames = {};
-      Object.keys(room.assignment).forEach((id) => {
+      Object.keys(room.gameState.assignment).forEach((id) => {
         playerNames[id] = room.players[id]?.name;
       });
       const payload = {
@@ -1346,12 +1346,12 @@ io.on("connection", (socket) => {
         description: r.description,
         icon: r.icon,
       };
-      if (r.team === "mafia") payload.accomplices = getMafiaAccomplices(room.assignment, socket.id, playerNames);
+      if (r.team === "mafia") payload.accomplices = getMafiaAccomplices(room.gameState.assignment, socket.id, playerNames);
       io.to(socket.id).emit("role:assigned", payload);
     }
-    if (room.loversIds.includes(socket.id)) {
-      const partnerId = room.loversIds.find((id) => id !== socket.id);
-      const partnerRole = room.assignment[partnerId];
+    if (room.gameState.loversIds.includes(socket.id)) {
+      const partnerId = room.gameState.loversIds.find((id) => id !== socket.id);
+      const partnerRole = room.gameState.assignment[partnerId];
       io.to(socket.id).emit("role:loverInfo", {
         partner: {
           id: partnerId,
@@ -1414,17 +1414,17 @@ io.on("connection", (socket) => {
       return;
     }
 
-    clearTimeout(room.night?.timer);
-    clearTimeout(room.day?.timer);
+    clearTimeout(room.gameState.night?.timer);
+    clearTimeout(room.gameState.day?.timer);
 
     room.started = false;
     room.phase = "lobby";
-    room.assignment = {};
-    room.mafiaOrder = [];
-    room.loversIds = [];
+    room.gameState.assignment = {};
+    room.gameState.mafiaOrder = [];
+    room.gameState.loversIds = [];
     room.history = []; // partida nueva, log nuevo
-    room.night = null;
-    room.day = null;
+    room.gameState.night = null;
+    room.gameState.day = null;
 
     Object.keys(room.players).forEach((id) => {
       if (room.players[id].kicked) delete room.players[id];
