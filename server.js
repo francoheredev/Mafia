@@ -14,7 +14,7 @@ const { assignRoles, getMafiaAccomplices, getRolesInPlay, ROLE_INFO } = require(
 const { GENERAL_RULES } = require("./rules");
 const { rooms, capPush, pushHistory, generateRoomCode, publicPlayerList } = require("./platform/core/rooms");
 const { registerGame } = require("./platform/core/registry");
-const { attachPluginEvents } = require("./platform/core/connection");
+const { attachPluginEvents, attachConnectionHandlers } = require("./platform/core/connection");
 
 const app = express();
 const server = http.createServer(app);
@@ -677,72 +677,102 @@ function resolveTrial(io, room, roomCode) {
 // Cada jugador se identifica solo por su socket.id, que cambia al
 // reconectar — así que un rejoin exitoso tiene que "mudar" ese id viejo al
 // nuevo en TODAS las estructuras de la sala que puedan referenciarlo, tanto
-// como clave como como valor. Repasar esta lista si se agrega un campo
-// nuevo a room.gameState.night/room.gameState.day que guarde un id de jugador.
-function remapPlayerId(room, oldId, newId) {
-  room.players[newId] = room.players[oldId];
-  delete room.players[oldId];
-
-  if (room.gameState.assignment && room.gameState.assignment[oldId]) {
-    room.gameState.assignment[newId] = room.gameState.assignment[oldId];
-    delete room.gameState.assignment[oldId];
+// como clave como como valor. La parte genérica (room.players, room.chat)
+// la maneja la plataforma (ver platform/core/connection.js); esto es solo
+// lo semánticamente Mafia — implementa el hook remapPlayerId(gameState,
+// chat, oldId, newId) del contrato de plugin. Repasar esta lista si se
+// agrega un campo nuevo a gameState.night/gameState.day que guarde un id
+// de jugador.
+function mafiaRemapPlayerId(gameState, chat, oldId, newId) {
+  if (gameState.assignment && gameState.assignment[oldId]) {
+    gameState.assignment[newId] = gameState.assignment[oldId];
+    delete gameState.assignment[oldId];
   }
 
-  if (room.gameState.mafiaOrder) {
-    room.gameState.mafiaOrder = room.gameState.mafiaOrder.map((id) => (id === oldId ? newId : id));
+  if (gameState.mafiaOrder) {
+    gameState.mafiaOrder = gameState.mafiaOrder.map((id) => (id === oldId ? newId : id));
   }
 
-  if (room.gameState.loversIds) {
-    room.gameState.loversIds = room.gameState.loversIds.map((id) => (id === oldId ? newId : id));
+  if (gameState.loversIds) {
+    gameState.loversIds = gameState.loversIds.map((id) => (id === oldId ? newId : id));
   }
 
-  if (room.chat) {
-    ["general", "fantasmas"].forEach((channel) => {
-      (room.chat[channel] || []).forEach((msg) => {
-        if (msg.senderId === oldId) msg.senderId = newId;
-      });
-    });
-  }
-
-  if (room.gameState.night) {
-    if (room.gameState.night.leaderId === oldId) room.gameState.night.leaderId = newId;
-    if (room.gameState.night.mafiaTargetId === oldId) room.gameState.night.mafiaTargetId = newId;
-    if (room.gameState.night.detectiveTargetId === oldId) room.gameState.night.detectiveTargetId = newId;
-    if (room.gameState.night.medicoTargetId === oldId) room.gameState.night.medicoTargetId = newId;
-    if (room.gameState.night.brujaTargetId === oldId) room.gameState.night.brujaTargetId = newId;
-    if (room.gameState.night.carniceroTargetId === oldId) room.gameState.night.carniceroTargetId = newId;
-    if (room.gameState.night.mafiaSuggestions) {
+  if (gameState.night) {
+    if (gameState.night.leaderId === oldId) gameState.night.leaderId = newId;
+    if (gameState.night.mafiaTargetId === oldId) gameState.night.mafiaTargetId = newId;
+    if (gameState.night.detectiveTargetId === oldId) gameState.night.detectiveTargetId = newId;
+    if (gameState.night.medicoTargetId === oldId) gameState.night.medicoTargetId = newId;
+    if (gameState.night.brujaTargetId === oldId) gameState.night.brujaTargetId = newId;
+    if (gameState.night.carniceroTargetId === oldId) gameState.night.carniceroTargetId = newId;
+    if (gameState.night.mafiaSuggestions) {
       const remapped = {};
-      Object.entries(room.gameState.night.mafiaSuggestions).forEach(([voterId, targetId]) => {
+      Object.entries(gameState.night.mafiaSuggestions).forEach(([voterId, targetId]) => {
         remapped[voterId === oldId ? newId : voterId] = targetId === oldId ? newId : targetId;
       });
-      room.gameState.night.mafiaSuggestions = remapped;
+      gameState.night.mafiaSuggestions = remapped;
     }
   }
 
-  if (room.gameState.day) {
-    if (room.gameState.day.accusedId === oldId) room.gameState.day.accusedId = newId;
-    if (room.gameState.day.silencedId === oldId) room.gameState.day.silencedId = newId;
-    if (room.gameState.day.nominations) {
+  if (gameState.day) {
+    if (gameState.day.accusedId === oldId) gameState.day.accusedId = newId;
+    if (gameState.day.silencedId === oldId) gameState.day.silencedId = newId;
+    if (gameState.day.nominations) {
       const remapped = {};
-      Object.entries(room.gameState.day.nominations).forEach(([voterId, targetId]) => {
+      Object.entries(gameState.day.nominations).forEach(([voterId, targetId]) => {
         remapped[voterId === oldId ? newId : voterId] = targetId === oldId ? newId : targetId;
       });
-      room.gameState.day.nominations = remapped;
+      gameState.day.nominations = remapped;
     }
-    if (room.gameState.day.verdicts && oldId in room.gameState.day.verdicts) {
-      room.gameState.day.verdicts[newId] = room.gameState.day.verdicts[oldId];
-      delete room.gameState.day.verdicts[oldId];
+    if (gameState.day.verdicts && oldId in gameState.day.verdicts) {
+      gameState.day.verdicts[newId] = gameState.day.verdicts[oldId];
+      delete gameState.day.verdicts[oldId];
     }
   }
 }
 
 // Le reenvía a un jugador recién reconectado lo que le correspondería estar
-// viendo ahora mismo, según la fase actual de la sala — así su pantalla deja
-// de estar "congelada" en lo último que vio antes de desconectarse.
-function sendCurrentPhaseState(io, room, roomCode, playerId) {
+// viendo ahora mismo — el rol (+ info de Amante) que ya tenía asignado, más
+// lo que corresponde a la fase actual de la sala — así su pantalla deja de
+// estar "congelada" en lo último que vio antes de desconectarse. Implementa
+// el hook onReconnect({ io, room, roomCode, playerId }) del contrato de
+// plugin; solo se invoca cuando room.started es true (ver
+// platform/core/connection.js).
+function mafiaOnReconnect({ io, room, roomCode, playerId }) {
+  const r = room.gameState.assignment[playerId];
+  if (r) {
+    const playerNames = {};
+    Object.keys(room.gameState.assignment).forEach((id) => {
+      playerNames[id] = room.players[id]?.name;
+    });
+    const payload = {
+      roleId: r.roleId,
+      name: r.name,
+      narrativeName: r.narrativeName,
+      team: r.team,
+      description: r.description,
+      icon: r.icon,
+    };
+    if (r.team === "mafia") payload.accomplices = getMafiaAccomplices(room.gameState.assignment, playerId, playerNames);
+    io.to(playerId).emit("role:assigned", payload);
+  }
+  if (room.gameState.loversIds.includes(playerId)) {
+    const partnerId = room.gameState.loversIds.find((id) => id !== playerId);
+    const partnerRole = room.gameState.assignment[partnerId];
+    io.to(playerId).emit("role:loverInfo", {
+      partner: {
+        id: partnerId,
+        name: room.players[partnerId]?.name,
+        icon: room.players[partnerId]?.icon,
+        roleId: partnerRole?.roleId,
+        roleName: partnerRole?.name,
+        narrativeName: partnerRole?.narrativeName,
+        team: partnerRole?.team,
+      },
+    });
+  }
+
   const player = room.players[playerId];
-  if (!player || !room.started || !player.alive) return;
+  if (!player || !player.alive) return;
   const myRole = room.gameState.assignment[playerId];
   if (!myRole) return;
 
@@ -1232,6 +1262,8 @@ const mafiaSocketHandlers = {
 registerGame({
   id: "mafia",
   socketHandlers: mafiaSocketHandlers,
+  onReconnect: mafiaOnReconnect,
+  remapPlayerId: mafiaRemapPlayerId,
 });
 
 io.on("connection", (socket) => {
@@ -1239,6 +1271,8 @@ io.on("connection", (socket) => {
   // (game:start, night:action, day:vote, ...) a través del registry — ver
   // platform/core/connection.js.
   attachPluginEvents(io, socket);
+  // Reconexión, 100% genérica (ver platform/core/connection.js).
+  attachConnectionHandlers(io, socket);
 
   // --- La pantalla compartida crea una sala nueva ---
   socket.on("screen:create", (data) => {
@@ -1301,80 +1335,6 @@ io.on("connection", (socket) => {
     ack?.({ ok: true, code, name: cleanName, icon: room.players[socket.id].icon, token });
 
     // Avisa a la pantalla (y a los demás celulares) la lista actualizada
-    io.to(code).emit("lobby:update", { players: publicPlayerList(room) });
-  });
-
-  // --- Reconexión: el jugador "congelado" recupera su mismo estado, sin
-  //     perder rol ni progreso, buscándolo por el token que le dimos al
-  //     unirse (no por nombre — los nombres no son únicos). ---
-  socket.on("player:rejoin", ({ code, token }, ack) => {
-    const room = rooms[code];
-    if (!room) {
-      ack?.({ ok: false, error: "Esa sala ya no existe." });
-      return;
-    }
-    const entry = Object.entries(room.players).find(([, p]) => p.token === token);
-    if (!entry) {
-      ack?.({ ok: false, error: "No encontramos tu sesión en esta sala." });
-      return;
-    }
-    const [oldId, player] = entry;
-    if (player.kicked) {
-      ack?.({ ok: false, error: "Fuiste expulsado de esta sala." });
-      return;
-    }
-
-    // Socket viejo todavía "vivo" (ej. dos pestañas con la misma sesión) —
-    // lo desconectamos para que no quede un jugador fantasma.
-    const oldSocket = io.sockets.sockets.get(oldId);
-    if (oldSocket && oldSocket.id !== socket.id) oldSocket.disconnect(true);
-
-    remapPlayerId(room, oldId, socket.id);
-    room.players[socket.id].connected = true;
-    socket.join(code);
-    socket.data.role = "player";
-    socket.data.roomCode = code;
-
-    ack?.({ ok: true, code, name: room.players[socket.id].name, icon: room.players[socket.id].icon });
-
-    if (!room.started) {
-      io.to(code).emit("lobby:update", { players: publicPlayerList(room) });
-      return;
-    }
-
-    const r = room.gameState.assignment[socket.id];
-    if (r) {
-      const playerNames = {};
-      Object.keys(room.gameState.assignment).forEach((id) => {
-        playerNames[id] = room.players[id]?.name;
-      });
-      const payload = {
-        roleId: r.roleId,
-        name: r.name,
-        narrativeName: r.narrativeName,
-        team: r.team,
-        description: r.description,
-        icon: r.icon,
-      };
-      if (r.team === "mafia") payload.accomplices = getMafiaAccomplices(room.gameState.assignment, socket.id, playerNames);
-      io.to(socket.id).emit("role:assigned", payload);
-    }
-    if (room.gameState.loversIds.includes(socket.id)) {
-      const partnerId = room.gameState.loversIds.find((id) => id !== socket.id);
-      const partnerRole = room.gameState.assignment[partnerId];
-      io.to(socket.id).emit("role:loverInfo", {
-        partner: {
-          id: partnerId,
-          name: room.players[partnerId]?.name,
-          icon: room.players[partnerId]?.icon,
-          roleId: partnerRole?.roleId,
-          roleName: partnerRole?.name,
-          narrativeName: partnerRole?.narrativeName,
-          team: partnerRole?.team,
-        },
-      });
-    }
-    sendCurrentPhaseState(io, room, code, socket.id);
     io.to(code).emit("lobby:update", { players: publicPlayerList(room) });
   });
 
