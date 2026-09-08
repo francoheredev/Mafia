@@ -12,6 +12,7 @@ const { randomUUID } = require("crypto");
 const { Server } = require("socket.io");
 const { assignRoles, getMafiaAccomplices, getRolesInPlay, ROLE_INFO } = require("./roles");
 const { GENERAL_RULES } = require("./rules");
+const { rooms, capPush, pushHistory, generateRoomCode, publicPlayerList } = require("./platform/core/rooms");
 
 const app = express();
 const server = http.createServer(app);
@@ -50,11 +51,6 @@ app.get("/rules-data.js", (req, res) => {
   );
 });
 
-// --- Estado en memoria (alcanza para el esqueleto; en un server real
-//     esto podría vivir en Redis si hay más de un proceso) ---
-// rooms[code] = { screenSocketId, players: { socketId: { name, connected } } }
-const rooms = {};
-
 // Tope máximo de la noche si a alguien se le hace larga la decisión.
 const NIGHT_TIMEOUT_MS = 60000;
 
@@ -87,48 +83,11 @@ const PLAYER_ICONS = [
   "🦆", "🐸", "🦋", "🐝", "🦎", "🐍", "🦂", "🐌", "🦡", "🐇",
   "🦃", "🦩", "🦚", "🦜", "🐦", "🦢", "🐴", "🐐", "🐑", "🐖",
 ];
-// Agrega un elemento a una lista tope (chat/historial) descartando lo más
-// viejo cuando se pasa del límite — evita que una sala muy larga acumule
-// memoria sin límite.
-function capPush(list, item, max = 200) {
-  list.push(item);
-  if (list.length > max) list.shift();
-}
-
-// Historial público de la partida: registra solo lo que ya se anuncia en
-// pantalla (nada secreto — ni objetivos de la Mafia, ni reveals de la Bruja,
-// ni a quién silenció el Carnicero) para que se pueda repasar más tarde, ya
-// que playNarrative() en la pantalla va pisando cada beat con el siguiente.
-function pushHistory(io, room, roomCode, icon, text) {
-  const entry = { id: randomUUID(), ts: Date.now(), icon, text };
-  capPush(room.history, entry);
-  io.to(roomCode).emit("history:entry", entry);
-}
-
 function pickIcon(room) {
   const used = new Set(Object.values(room.players).map((p) => p.icon));
   const available = PLAYER_ICONS.filter((i) => !used.has(i));
   const pool = available.length > 0 ? available : PLAYER_ICONS;
   return pool[Math.floor(Math.random() * pool.length)];
-}
-
-const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sin O/0/I/1 para evitar confusión
-function generateRoomCode() {
-  let code;
-  do {
-    code = Array.from({ length: 4 }, () =>
-      CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]
-    ).join("");
-  } while (rooms[code]); // evita colisiones
-  return code;
-}
-
-function publicPlayerList(room) {
-  return Object.values(room.players).map((p) => ({
-    name: p.name,
-    connected: p.connected,
-    icon: p.icon,
-  }));
 }
 
 function getAliveIds(room) {
