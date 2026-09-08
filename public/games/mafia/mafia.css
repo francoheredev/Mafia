@@ -1,0 +1,298 @@
+/* mafia.css — todo lo que es específico de La Mafia: tarjetas y catálogo de
+   roles, ciclo Noche/Día (ronda de avatares, narrativa cinemática, panel de
+   objetivos, votación/veredicto), Amante. La parte genérica (layout base,
+   FAB+modal, chat, historial, roster del lobby, panel del host) vive en
+   /platform/platform.css. */
+
+/* ---- Botón de empezar partida ---- */
+#startBtn {
+  margin-top: 12px;
+}
+#startBtn:disabled {
+  background: #3a4256;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* ---- Tarjeta de rol (celular) ---- */
+.role-card {
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
+  border: 2px solid transparent;
+}
+.role-card h2 { font-size: 1.6rem; margin: 8px 0; }
+.role-icon { font-size: 2.6rem; margin-top: 8px; }
+.role-team { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+.role-desc { color: var(--text); }
+.accomplices { margin-top: 12px; color: var(--danger); }
+
+.role-card.team-mafia { border-color: var(--danger); background: #2a1a1f; }
+.role-card.team-ciudad { border-color: #5b8dd6; background: #1a2233; }
+.role-card.team-independiente { border-color: var(--accent); background: #2a2419; }
+
+/* ---- Posiciones de los FAB propios de Mafia (rol/reglas/sonido/chat/host/
+   historial) — el orden en que se apilan es propio de este set de FABs, no
+   algo genérico de la plataforma. ---- */
+.rules-fab-pos {
+  top: 80px; /* apilado debajo de roleFab (celular); en la pantalla no hay
+                roleFab, así que le queda la esquina libre igual */
+}
+.host-fab-pos {
+  top: auto;
+  bottom: 16px;
+  right: 16px;
+}
+.sound-fab-pos {
+  top: 80px; /* apilado debajo de rulesFab, arriba de hostFab */
+}
+.chat-fab-pos {
+  top: 144px; /* celular: apilado debajo de rulesFab */
+}
+/* history-fab-pos se apila en un lugar distinto en cada pantalla (el
+   celular ya tiene roleFab+rulesFab+chatFab arriba; la pantalla compartida
+   solo tiene rulesFab+soundFab), así que se resuelve por body.player/.screen
+   en vez de un único valor fijo. */
+body.player .history-fab-pos {
+  top: 208px;
+}
+body.screen .history-fab-pos {
+  top: 144px;
+}
+
+/* ---- Catálogo de roles en juego (pantalla + modal de reglas) ---- */
+.roles-catalog {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin: 20px auto 0;
+  max-width: 600px;
+}
+.role-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 16px;
+  border-radius: 16px;
+  border: 2px solid transparent;
+  background: var(--panel);
+  font-size: 0.9rem;
+  max-width: 220px;
+  text-align: center;
+}
+.role-chip-icon { font-size: 1.3rem; }
+.role-chip-tip {
+  margin: 2px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.role-chip.team-mafia { border-color: var(--danger); }
+.role-chip.team-ciudad { border-color: #5b8dd6; }
+.role-chip.team-independiente { border-color: var(--accent); }
+
+/* ---- Ciclo Noche (pantalla): ronda de jugadores ---- */
+.night-circle-wrap {
+  position: relative;
+  width: 300px;
+  height: 300px;
+  margin: 28px auto 8px;
+}
+.night-circle-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.8rem;
+  opacity: 0.7;
+}
+.night-avatar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 64px;
+  transition: filter 0.2s;
+}
+.night-avatar-icon {
+  font-size: 1.8rem;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  border-radius: 50%;
+  border: 2px solid #333c52;
+}
+.night-avatar.done .night-avatar-icon {
+  border-color: var(--ok);
+  box-shadow: 0 0 0 4px rgba(111, 191, 115, 0.2);
+}
+.night-avatar-name {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-align: center;
+}
+.night-avatar.done .night-avatar-name {
+  color: var(--ok);
+}
+
+/* ---- Ciclo Noche (pantalla) ---- */
+.night-progress {
+  list-style: none;
+  padding: 0;
+  margin: 24px auto 0;
+  max-width: 360px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.night-progress li {
+  background: var(--panel);
+  padding: 10px 16px;
+  border-radius: 10px;
+  color: var(--muted);
+}
+
+.death-list {
+  list-style: none;
+  padding: 0;
+  margin: 24px auto 0;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.death-list li {
+  background: var(--panel);
+  padding: 12px 16px;
+  border-radius: 10px;
+}
+.death-icon { margin-right: 4px; }
+
+.night-timer {
+  margin-top: 18px;
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: var(--accent);
+  text-align: center;
+}
+
+/* ---- Narrativa cinemática (pantalla) ---- */
+@keyframes narrativeFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.lobby-screen.narrative-fade-in {
+  animation: narrativeFadeIn 0.5s ease;
+}
+.narrative-beat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 48px 24px;
+}
+.narrative-icon {
+  font-size: 3rem;
+}
+.narrative-text {
+  font-size: 1.2rem;
+  max-width: 480px;
+  line-height: 1.5;
+}
+
+/* ---- Ciclo Día (pantalla) ---- */
+.advance-btn {
+  display: block;
+  margin: 16px auto 0;
+  width: auto;
+  padding: 12px 24px;
+  background: transparent;
+  border: 2px solid var(--accent);
+  color: var(--accent);
+}
+.advance-btn:hover {
+  background: var(--accent);
+  color: #1a1a1a;
+}
+.accused-icon { font-size: 1.3rem; }
+
+/* ---- Ciclo Noche (celular) ---- */
+.night-panel { text-align: center; }
+.night-panel h2 { margin-top: 0; }
+
+.target-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 16px 0;
+}
+.target-btn {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid #333c52;
+  background: #0f1420;
+  color: var(--text);
+  font-size: 0.95rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.target-btn:hover { border-color: var(--accent); }
+.target-btn.selected {
+  border-color: var(--danger);
+  background: #2a1a1f;
+}
+
+.suggestions-list {
+  max-width: 360px;
+  font-size: 0.85rem;
+}
+.suggestions-list li em { color: var(--muted); font-style: normal; }
+.target-icon { font-size: 1.1rem; }
+
+.abstain-btn {
+  margin-top: 4px;
+  background: transparent;
+  border: 1px solid #333c52;
+  color: var(--muted);
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  width: auto;
+}
+.abstain-btn:hover { border-color: var(--muted); color: var(--text); }
+
+.verdict-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin: 16px 0;
+}
+.verdict-btn {
+  width: auto;
+  padding: 14px 24px;
+  font-size: 1rem;
+}
+.guilty-btn { background: var(--danger); color: #1a1a1a; }
+.innocent-btn { background: var(--ok); color: #1a1a1a; }
+
+/* ---- Panel de noche combinado: voto colectivo de la Mafia + poder
+   personal de Bruja/Carnicero, uno debajo del otro dentro del mismo
+   .night-panel (ver renderMafiaNightPanel en player.js) ---- */
+.night-panel-section + .night-panel-section {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #333c52;
+}
+
+/* ---- Info del Amante, en la tarjeta de rol (celular) ---- */
+.lover-info { margin-top: 12px; color: var(--accent); }

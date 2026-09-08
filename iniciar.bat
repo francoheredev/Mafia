@@ -36,7 +36,7 @@ start "La Mafia - Servidor - NO CERRAR" cmd /k "npm start"
 echo Esperando a que arranque...
 timeout /t 3 /nobreak >nul
 
-start "" "http://localhost:3000/screen.html"
+start "" "http://localhost:3000/mafia/screen"
 
 echo.
 echo ============================================
