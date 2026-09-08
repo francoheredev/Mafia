@@ -29,7 +29,13 @@
     "test:history": "node tests/mafia/test-history.js",
     "test:reconnect": "node tests/mafia/test-reconnect.js",
     "test:restart": "node tests/mafia/test-restart.js",
-    "test:kick": "node tests/mafia/test-kick.js"
+    "test:kick": "node tests/mafia/test-kick.js",
+    "test:blind-shot": "node run-tests.js tests/blind-shot",
+    "test:blind-shot:start": "node tests/blind-shot/test-start.js",
+    "test:blind-shot:round-resolve": "node tests/blind-shot/test-round-resolve.js",
+    "test:blind-shot:flow": "node tests/blind-shot/test-flow.js",
+    "test:blind-shot:reconnect": "node tests/blind-shot/test-reconnect.js",
+    "test:blind-shot:kick": "node tests/blind-shot/test-kick.js"
   },
   "dependencies": {
     "express": "^4.19.2",
