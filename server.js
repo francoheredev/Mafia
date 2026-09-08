@@ -872,10 +872,14 @@ function kickPlayer(io, room, roomCode, targetId) {
 
 io.on("connection", (socket) => {
   // --- La pantalla compartida crea una sala nueva ---
-  socket.on("screen:create", () => {
+  socket.on("screen:create", (data) => {
+    // TODO(step 12): quitar el default una vez que games/index.js registre
+    // juegos reales y los clientes siempre manden gameId explícito.
+    const gameId = data?.gameId || "mafia";
     const code = generateRoomCode();
     rooms[code] = {
       screenSocketId: socket.id,
+      gameId,
       players: {},
       phase: "lobby",
       loversIds: [],
