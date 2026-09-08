@@ -848,27 +848,19 @@ function mafiaOnReconnect({ io, room, roomCode, playerId }) {
   }
 }
 
-// Expulsar a un jugador desde la pantalla (host). En el lobby es simplemente
-// borrarlo; en partida se lo trata como una muerte silenciosa — sin
-// narrativa ni revelar rol/causa, igual que cualquier otra muerte de este
-// juego — reutilizando killPlayer (que ya encadena la venganza del Cazador
-// si corresponde).
-function kickPlayer(io, room, roomCode, targetId) {
+// Expulsar a un jugador ya en partida (host). Se lo trata como una muerte
+// silenciosa — sin narrativa ni revelar rol/causa, igual que cualquier otra
+// muerte de este juego — reutilizando killPlayer (que ya encadena la
+// venganza del Cazador si corresponde). Implementa el hook
+// onKick({ io, room, roomCode, targetId }) del contrato de plugin; la
+// plataforma (ver platform/core/connection.js) ya se ocupó del caso
+// "todavía en el lobby" (borrar sin más) antes de llegar acá, y ya marcó
+// target.kicked = true para que un rejoin posterior con ese token se
+// rechace.
+function mafiaOnKick({ io, room, roomCode, targetId }) {
   const target = room.players[targetId];
-  if (!target) return { ok: false, error: "Ese jugador no existe." };
   const targetSocket = io.sockets.sockets.get(targetId);
 
-  if (!room.started) {
-    delete room.players[targetId];
-    if (targetSocket) {
-      targetSocket.emit("player:kicked", { reason: "Fuiste expulsado por el anfitrión." });
-      targetSocket.disconnect(true);
-    }
-    io.to(roomCode).emit("lobby:update", { players: publicPlayerList(room) });
-    return { ok: true };
-  }
-
-  target.kicked = true; // para que un rejoin posterior con ese token se rechace
   const deaths = [];
   const transformations = [];
   // bypassLycan: una expulsión del host es una acción fuera de la ficción
@@ -1264,6 +1256,7 @@ registerGame({
   socketHandlers: mafiaSocketHandlers,
   onReconnect: mafiaOnReconnect,
   remapPlayerId: mafiaRemapPlayerId,
+  onKick: mafiaOnKick,
 });
 
 io.on("connection", (socket) => {
@@ -1336,17 +1329,6 @@ io.on("connection", (socket) => {
 
     // Avisa a la pantalla (y a los demás celulares) la lista actualizada
     io.to(code).emit("lobby:update", { players: publicPlayerList(room) });
-  });
-
-  // --- La pantalla expulsa a un jugador (lobby o mid-partida) ---
-  socket.on("player:kick", ({ targetId }, ack) => {
-    const { role, roomCode } = socket.data;
-    const room = rooms[roomCode];
-    if (!room || role !== "screen") {
-      ack?.({ ok: false, error: "Solo la pantalla puede expulsar." });
-      return;
-    }
-    ack?.(kickPlayer(io, room, roomCode, targetId));
   });
 
   // --- La pantalla pide la lista de jugadores para el panel de expulsión ---

@@ -122,6 +122,45 @@ function attachConnectionHandlers(io, socket) {
     plugin?.onReconnect?.({ io, room, roomCode: code, playerId: socket.id });
     io.to(code).emit("lobby:update", { players: publicPlayerList(room) });
   });
+
+  // --- La pantalla expulsa a un jugador (lobby o mid-partida) --- La
+  //     plataforma resuelve por sí sola el caso "todavía en el lobby"
+  //     (borrarlo sin más, sin ningún concepto de juego de por medio); una
+  //     vez arrancada la partida, delega en plugin.onKick(...) — ver
+  //     contrato de plugin — qué significa "morir" para ese juego.
+  socket.on("player:kick", ({ targetId }, ack) => {
+    if (socket.data.role !== "screen") {
+      ack?.({ ok: false, error: "Solo la pantalla puede expulsar." });
+      return;
+    }
+    const { roomCode } = socket.data;
+    const room = rooms[roomCode];
+    if (!room) {
+      ack?.({ ok: false, error: "La sala ya no existe." });
+      return;
+    }
+    ack?.(kickPlayer(io, room, roomCode, targetId));
+  });
+}
+
+function kickPlayer(io, room, roomCode, targetId) {
+  const target = room.players[targetId];
+  if (!target) return { ok: false, error: "Ese jugador no existe." };
+  const targetSocket = io.sockets.sockets.get(targetId);
+
+  if (!room.started) {
+    delete room.players[targetId];
+    if (targetSocket) {
+      targetSocket.emit("player:kicked", { reason: "Fuiste expulsado por el anfitrión." });
+      targetSocket.disconnect(true);
+    }
+    io.to(roomCode).emit("lobby:update", { players: publicPlayerList(room) });
+    return { ok: true };
+  }
+
+  target.kicked = true; // para que un rejoin posterior con ese token se rechace
+  const plugin = getGame(room.gameId);
+  return plugin?.onKick?.({ io, room, roomCode, targetId }) || { ok: true };
 }
 
 module.exports = { attachPluginEvents, attachConnectionHandlers };
