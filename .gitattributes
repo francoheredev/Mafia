@@ -1,0 +1,17 @@
+# Nunca tocar finales de línea en binarios — con core.autocrlf=true (Windows)
+# git puede "convertir" LF a CRLF en archivos que no reconoce como binarios,
+# lo que corrompe el contenido (offsets internos rotos, ej. la tabla xref de
+# un PDF) sin que git avise con un error.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.mp3 binary
+*.mp4 binary
+*.zip binary
