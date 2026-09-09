@@ -208,6 +208,13 @@ let canvasHeight = 0;
 // (halfWidth/halfHeight), no un radio.
 let zoneHalfWidth = 1000 * CANVAS_ASPECT;
 let zoneHalfHeight = 1000;
+// El arena completa (fija durante toda la partida) — a diferencia de la
+// zona, que se achica ronda a ronda. Se usa como referencia de escala fija
+// (ver worldToCanvas) para que el achique de la zona se vea en el mini-mapa
+// del celular, en vez de que la vista se reescale para llenar siempre el
+// canvas entero (mismo criterio que arenaScale en screen.js).
+let arenaHalfWidth = 1000 * CANVAS_ASPECT;
+let arenaHalfHeight = 1000;
 let simX = 0;
 let simY = 0;
 let deadline = 0;
@@ -239,7 +246,10 @@ let rafHandle = null;
 let lastFrameTs = null;
 
 function worldToCanvas(wx, wy) {
-  const scale = canvasHeight / (2 * zoneHalfHeight);
+  // Escala FIJA sobre el arena completa (no la zona vigente, que se
+  // achica) — así el rectángulo dorado de la zona se ve cada vez más chico
+  // dentro del canvas en vez de reescalar para llenarlo siempre entero.
+  const scale = canvasHeight / (2 * arenaHalfHeight);
   return {
     x: canvasWidth / 2 + wx * scale,
     y: canvasHeight / 2 - wy * scale, // mini-mapa espejado: +y de mundo sube en pantalla
@@ -345,15 +355,26 @@ function wireCanvasPointerEvents() {
   canvas.addEventListener("pointercancel", release);
 }
 
+// Dibuja el rectángulo (en unidades de mundo, centrado en el origen) que
+// corresponde a halfWidth/halfHeight, ya proyectado con la escala fija del
+// arena — mismo criterio que drawArenaRect en screen.js.
+function drawWorldRect(halfWidth, halfHeight, strokeStyle, lineWidth) {
+  const topLeft = worldToCanvas(-halfWidth, halfHeight);
+  const bottomRight = worldToCanvas(halfWidth, -halfHeight);
+  ctx.strokeStyle = strokeStyle;
+  ctx.lineWidth = lineWidth;
+  ctx.strokeRect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
+}
+
 function drawFrame() {
   if (!ctx) return;
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
-  // Zona vigente: ahora un rectángulo (toda la pantalla del celular, no un
-  // círculo) — el clamp del movimiento coincide exactamente con este borde.
-  ctx.strokeStyle = "#333c52";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(1.5, 1.5, canvasWidth - 3, canvasHeight - 3);
+  // Referencia tenue del arena completa (fija) + la zona vigente (dorada,
+  // se achica ronda a ronda) — el clamp del movimiento coincide con este
+  // segundo rectángulo, no con el borde del canvas.
+  drawWorldRect(arenaHalfWidth, arenaHalfHeight, "#333c52", 2);
+  drawWorldRect(zoneHalfWidth, zoneHalfHeight, "#e8c07d", 3);
 
   const self = worldToCanvas(simX, simY);
 
@@ -361,7 +382,7 @@ function drawFrame() {
   // declaración arriba), rojo, largo — llega hasta el borde de la zona
   // vigente en la dirección apuntada (no un largo fijo arbitrario).
   const edgeDist = distanceToZoneEdge(simX, simY, aimAngle, zoneHalfWidth, zoneHalfHeight);
-  const scale = canvasHeight / (2 * zoneHalfHeight);
+  const scale = canvasHeight / (2 * arenaHalfHeight);
   const tx = self.x + Math.cos(aimAngle) * edgeDist * scale;
   const ty = self.y - Math.sin(aimAngle) * edgeDist * scale; // flip
   ctx.beginPath();
@@ -448,12 +469,16 @@ function stopControlLoop() {
 //     de esta ronda. alreadySubmitted (solo presente en un reenvío por
 //     reconnect) deja al jugador en modo "esperando" sin poder volver a
 //     mandar. ---
-socket.on("round:yourTurn", ({ zone, startX, startY, deadline: dl, alreadySubmitted }) => {
+socket.on("round:yourTurn", ({ zone, arena, startX, startY, deadline: dl, alreadySubmitted }) => {
   if (amIDead) return;
   vibrate(VIBRATE.roundStart);
 
   zoneHalfWidth = zone.halfWidth;
   zoneHalfHeight = zone.halfHeight;
+  if (arena) {
+    arenaHalfWidth = arena.halfWidth;
+    arenaHalfHeight = arena.halfHeight;
+  }
   simX = startX;
   simY = startY;
   deadline = dl;

@@ -326,11 +326,17 @@ socket.on("round:begin", ({ number, zone, arena, aliveCount }) => {
 const REVEAL_STEP_MS = 1100; // cadencia entre disparo y disparo
 const FLASH_MS = 500; // duración del destello de cada disparo
 const ELIMINATED_ALPHA = 0.3;
+// Pausa inicial, antes de que arranque el orden de disparos, en la que se
+// ven TODAS las posiciones finales Y hacia dónde quedó apuntando cada
+// uno — "así quedaron parados" — a pedido del usuario tras probarlo.
+const ALL_AIMS_MS = 1600;
+const ALL_AIMS_LASER_COLOR = "rgba(255, 59, 59, 0.55)";
 
 let revealZone = null;
 let revealArena = null;
-let revealPlayers = {}; // id -> { x, y, icon, name, eliminated }
+let revealPlayers = {}; // id -> { x, y, angle, icon, name, eliminated }
 let activeShot = null; // { shooterId, fired, angle, hitId, at, to, startTs } | null
+let showAllAims = false; // fase inicial de la revelación (ver ALL_AIMS_MS)
 let revealRafHandle = null;
 let revealLastTs = null; // para el dt de las partículas (rAF no lo da solo)
 
@@ -415,12 +421,31 @@ function buildRevealPlayers(order) {
     players[e.shooterId] = {
       x: e.at.x,
       y: e.at.y,
+      angle: e.angle,
       icon: rosterById[e.shooterId]?.icon || "❔",
       name: rosterById[e.shooterId]?.name || "?",
       eliminated: false,
     };
   });
   return players;
+}
+
+// Láser de puntería de UN jugador durante la pausa de "así quedaron
+// parados" — llega hasta el borde de la zona vigente (la de esta ronda,
+// antes del achique), mismo criterio que el láser del celular.
+function drawAimLine(p) {
+  const from = worldToArenaCanvas(p.x, p.y);
+  const len = distanceToRectEdge(p.x, p.y, p.angle, revealZone.halfWidth, revealZone.halfHeight);
+  const to = {
+    x: from.x + Math.cos(p.angle) * len * arenaScale,
+    y: from.y - Math.sin(p.angle) * len * arenaScale,
+  };
+  arenaCtx.beginPath();
+  arenaCtx.moveTo(from.x, from.y);
+  arenaCtx.lineTo(to.x, to.y);
+  arenaCtx.strokeStyle = ALL_AIMS_LASER_COLOR;
+  arenaCtx.lineWidth = 2;
+  arenaCtx.stroke();
 }
 
 function drawShotLine(shot) {
@@ -462,6 +487,10 @@ function drawRevealFrame(now) {
   drawArenaRect(revealArena.halfWidth, revealArena.halfHeight, "#1c2233", 2);
   drawArenaRect(revealZone.halfWidth, revealZone.halfHeight, "#e8c07d", 3);
 
+  if (showAllAims) {
+    Object.values(revealPlayers).forEach((p) => drawAimLine(p));
+  }
+
   // Destello del disparo activo: dos pulsos rápidos de opacidad que
   // convergen a opaco al final — más "flash de cámara" que un simple
   // fade. Se dibuja antes de los íconos para que el láser quede detrás.
@@ -494,11 +523,20 @@ function playReveal(zoneBefore, order, onDone) {
   revealArena = arenaCache;
   revealPlayers = buildRevealPlayers(order);
   activeShot = null;
+  showAllAims = true;
   particles = [];
   stopRevealAnimation();
   revealRafHandle = requestAnimationFrame(drawRevealFrame);
 
+  const stats = document.getElementById("arenaStats");
+  if (stats) stats.textContent = "🎯 Así quedaron parados y apuntando...";
+
   let i = 0;
+  narrativeTimer = setTimeout(() => {
+    showAllAims = false;
+    step();
+  }, ALL_AIMS_MS);
+
   function step() {
     if (i >= order.length) {
       stopRevealAnimation();
@@ -537,7 +575,6 @@ function playReveal(zoneBefore, order, onDone) {
     i++;
     narrativeTimer = setTimeout(step, REVEAL_STEP_MS);
   }
-  step();
 }
 
 socket.on("round:resolved", ({ number, order, zoneBefore, zoneAfter, winner }) => {

@@ -155,6 +155,7 @@ function startMovementPhase(io, room, roomCode) {
     const p = gs.players[id];
     io.to(id).emit("round:yourTurn", {
       zone: gs.zone,
+      arena: { halfWidth: ARENA_HALF_WIDTH, halfHeight: ARENA_HALF_HEIGHT },
       startX: p.x,
       startY: p.y,
       deadline,
@@ -244,9 +245,10 @@ function resolveRoundWithOrder(room, order) {
     const at = { x: resolved[shooterId].x, y: resolved[shooterId].y };
     if (!room.players[shooterId]?.alive || deadThisRound.has(shooterId)) {
       // Ya lo mataron antes de que le tocara en este orden — su disparo no
-      // sale. `at` igual queda (la pantalla puede mostrar el cuerpo en su
-      // posición aunque no haya disparo que animar).
-      events.push({ shooterId, fired: false, hitId: null, at });
+      // sale. `at` y `angle` igual quedan (la pantalla puede mostrar el
+      // cuerpo en su posición, apuntando hacia donde apuntaba, aunque no
+      // haya disparo que animar).
+      events.push({ shooterId, fired: false, hitId: null, at, angle: resolved[shooterId].angle });
       return;
     }
     const shooter = resolved[shooterId];
@@ -378,6 +380,7 @@ function blindShotOnReconnect({ io, room, roomCode, playerId }) {
     if (!p) return;
     io.to(playerId).emit("round:yourTurn", {
       zone: gs.zone,
+      arena: { halfWidth: ARENA_HALF_WIDTH, halfHeight: ARENA_HALF_HEIGHT },
       startX: p.x,
       startY: p.y,
       deadline: gs.round.deadline, // el deadline ORIGINAL, no uno nuevo — sin drift de reloj
