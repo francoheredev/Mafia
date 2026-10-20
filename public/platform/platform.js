@@ -7,7 +7,7 @@
 // reglas/host. No sabe nada de ningún juego en particular — cada juego lo
 // consume, nunca al revés.
 window.Platform = (function () {
-  const socket = io();
+  const socket = io(window.PLATFORM_SERVER_URL || undefined);
 
   function sessionKey(gameId, key) {
     return `${gameId}:${key}`;

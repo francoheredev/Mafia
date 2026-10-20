@@ -17,12 +17,17 @@ window.Platform.screenConnect = {
 
   // La pantalla se suele abrir como "localhost" en la PC, pero el QR lo
   // escanea un celular en la misma red — necesita la IP LAN de la PC, no
-  // "localhost" (que en el celular apunta al propio celular).
+  // "localhost" (que en el celular apunta al propio celular). En un host
+  // público (deploy) el QR apunta al mismo dominio de la página.
   async buildJoinUrl(gameId, code) {
-    const lanIp = await fetch("/lan-ip")
-      .then((r) => r.json())
-      .then((d) => d.lanIp)
-      .catch(() => null);
+    const { hostname } = window.location;
+    const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
+    const lanIp = !isLocalhost
+      ? null
+      : await fetch("/lan-ip")
+          .then((r) => r.json())
+          .then((d) => d.lanIp)
+          .catch(() => null);
     const port = window.location.port ? `:${window.location.port}` : "";
     const host = lanIp || window.location.hostname;
     return `${window.location.protocol}//${host}${port}/${gameId}/player?code=${code}`;

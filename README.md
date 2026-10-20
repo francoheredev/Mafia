@@ -1,6 +1,6 @@
 # La Mafia
 
-Versión jugable del proyecto, después del [GDD de La Mafia](docs/gdd/mafia.md): una pantalla compartida crea una sala, los celulares se unen escaneando un QR, se reparten los roles, y se juega un ciclo completo de Noche (Mafia/Vidente/Médico) y Día (discusión, votación, defensa, juicio) sincronizado en vivo por WebSockets, hasta que se declara un bando ganador.
+Versión jugable del proyecto, después del [GDD de La Mafia](docs/gdd/mafia.md): una pantalla compartida crea una sala, los celulares se unen escaneando un QR, se reparten los roles, y se juega un ciclo completo de Noche (Mafia/Detective/Médico) y Día (discusión, votación, defensa, juicio) sincronizado en vivo por WebSockets, hasta que se declara un bando ganador.
 
 ## Documentación de diseño (GDD)
 
@@ -8,7 +8,14 @@ Versión jugable del proyecto, después del [GDD de La Mafia](docs/gdd/mafia.md)
 - [La Mafia](docs/gdd/mafia.md)
 - [Blind Shot](docs/gdd/blind-shot.md)
 
-## Cómo correrlo
+## Jugar online
+
+- **Link público (Vercel):** _pendiente — completar con la URL `*.vercel.app`_
+- Abrí el link en la PC/TV, elegí **La Mafia** y escaneá el QR con los celulares (hacen falta **6 a 10 jugadores**; para probarlo solo, abrí varias pestañas de `/mafia/player`).
+- **Arquitectura del deploy:** Vercel sirve el front estático (`public/`, ver `vercel.json`); el servidor Socket.IO (`server.js`, salas y timers en memoria) corre en Render (`render.yaml`), porque las funciones serverless de Vercel no mantienen WebSockets. La URL del servidor está en `public/platform/config.js` y en los rewrites de `vercel.json`.
+- ⚠️ Render free "duerme" el servidor tras 15 min sin uso: la primera carga puede tardar ~50 s en conectar.
+
+## Cómo correrlo en local
 
 **Opción fácil (Windows): doble click en `iniciar.bat`**
 
@@ -23,7 +30,7 @@ npm start
 
 Con eso el servidor queda escuchando en `http://localhost:3000`. Abrí:
 
-- **Hub:** `http://localhost:3000/` — selector de juego (hoy solo está La Mafia; a futuro, cada juego nuevo aparece acá solo).
+- **Hub:** `http://localhost:3000/` — selector de juego (La Mafia y Blind Shot; cada juego nuevo aparece acá solo).
 - **Pantalla:** `http://localhost:3000/mafia/screen` (esto es lo que abrirías en la PC/TV) — o entrá desde el hub.
 - **Celular:** escaneá el QR que aparece en la pantalla, o abrí `http://localhost:3000/mafia/player` a mano.
 
@@ -41,7 +48,7 @@ npm run test:roles   # prueba con 6 jugadores: arranca la partida y valida que
                       # los roles se repartan bien (incluye chequeo de que los
                       # mafiosos se vean entre sí como cómplices)
 npm run test:night   # prueba con 10 jugadores: simula una noche completa
-                      # (Mafia ataca, Vidente investiga al Padrino y lo ve
+                      # (Mafia ataca, Detective investiga al Padrino y lo ve
                       # inocente, Médico protege a otro jugador, y el Cazador
                       # muere y dispara su venganza)
 npm run test:day      # prueba con 10 jugadores: pasa una noche sin víctimas y
@@ -62,11 +69,11 @@ Si ves "🎉 ..." al final de cada uno, está todo bien.
 
 - **Stack:** todo en JavaScript (Node + Socket.IO + HTML/CSS/JS plano), sin Godot — ver [sección 5 del GDD](docs/gdd/mafia.md#5-stack-tecnológico).
 - **Sin instalar nada:** el celular se une por navegador escaneando un QR.
-- **Reconexión "congelada":** si un jugador se desconecta, no se lo borra de la sala — queda marcado como desconectado y puede reincorporarse (`player:rejoin`). La lógica real de "recuperar su mismo rol" queda para cuando se sume el ciclo Noche/Día (está marcada con `TODO` en `server.js`).
+- **Reconexión "congelada":** si un jugador se desconecta, no se lo borra de la sala — queda marcado como desconectado y puede reincorporarse (`player:rejoin`) recuperando su mismo rol y estado de partida (`mafiaOnReconnect` en `games/mafia/logic.js`).
 - **Asignación de roles ([Fase 0 del GDD](docs/gdd/mafia.md#4-flujo-de-partida)):** al tocar "Empezar partida" en la pantalla (habilitado con 6-10 jugadores conectados), el servidor sortea el catálogo MVP (`roles.js`) y le manda a cada celular su rol en privado. Los mafiosos ven en su tarjeta a sus cómplices, tal como quedó definido.
   - ⚠️ **Ajuste al GDD:** se agregó un rol "Aldeano" (sin habilidad) que no estaba en el catálogo original — hacía falta para completar el bando Ciudad en partidas de 7+ jugadores, ya que el MVP solo tiene 3 roles Ciudad con habilidad. Ver [sección 6.1](docs/gdd/mafia.md#61-catálogo-de-roles-mvp).
   - ⚠️ **Ajuste a la tabla de escalado ([sección 6.2 del GDD](docs/gdd/mafia.md#62-escalado-por-cantidad-de-jugadores)):** la tabla original no reservaba un lugar para el Bufón/Independiente — quedó corregida en `roles.js` (ver comentarios ahí).
-- **Ciclo Noche ([Fase 1 del GDD](docs/gdd/mafia.md#4-flujo-de-partida)):** la pantalla entra en modo "cae la noche" con un checklist en vivo y un cronómetro (60s) para que todos decidan. La Mafia elige víctima con **líder rotativo** (rota entre los mafiosos vivos noche a noche; el resto del equipo ve quién decide y espera), el Vidente investiga en privado a un jugador (el Padrino se ve como inocente, tal como define el GDD), y el Médico protege a alguien. Si matan al Cazador, dispara automáticamente contra otro jugador vivo al azar.
+- **Ciclo Noche ([Fase 1 del GDD](docs/gdd/mafia.md#4-flujo-de-partida)):** la pantalla entra en modo "cae la noche" con un checklist en vivo y un cronómetro (60s) para que todos decidan. La Mafia elige víctima con **líder rotativo** (rota entre los mafiosos vivos noche a noche; el resto del equipo ve quién decide y espera), el Detective investiga en privado a un jugador (el Padrino se ve como inocente, tal como define el GDD), y el Médico protege a alguien. Si matan al Cazador, dispara automáticamente contra otro jugador vivo al azar.
 - **Ciclo Día ([Fases 2-6 del GDD](docs/gdd/mafia.md#4-flujo-de-partida)):** después del amanecer, la pantalla pasa a **Discusión** (los jugadores debaten en persona, con un cronómetro que la pantalla puede cortar antes con un botón), luego **Votación** (cada celular vota en privado a quién acusar, o se abstiene), **Defensa** (el más votado tiene la palabra, también cortable desde la pantalla) y **Juicio** (el resto vota culpable/inocente en privado; el acusado no vota su propio juicio). Si gana "culpable", se ejecuta. ⚠️ Empates en la votación de acusación **no** dejan el día sin juicio: se sortea entre los empatados, y quien sale sorteado sigue el mismo camino que cualquier acusado (defensa + juicio). Solo si nadie recibió ningún voto, no hay acusación ese día. Después, vuelve a caer la noche.
 - **Nadie revela su rol al morir** (ni de noche ni por ejecución en el Juicio) — se descubre discutiendo, nunca lo anuncia el sistema. Es intencional que hoy no haya forma de cambiar esto desde la pantalla; a futuro debería ser una opción configurable por sala.
 - **Narrativa cinemática al resolver Noche/Día:** en vez de una frase plana, la pantalla cuenta lo que pasó en varios pasos con pausas (niebla, la Mafia acechando, el ataque nombrando a la víctima si hubo muerte, etc.), y recién al final queda fija la pantalla de resultado. La propia pantalla le avisa al servidor (`day:advance`) cuando terminó de reproducirla, así nunca se pisa con la fase siguiente — los timers de respaldo (`NIGHT_RESULT_MS`/`DAY_RESULT_MS`) solo entran si la pantalla nunca avisa.

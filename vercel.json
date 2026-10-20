@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "",
+  "buildCommand": "",
+  "outputDirectory": "public",
+  "rewrites": [
+    { "source": "/", "destination": "/hub/index.html" },
+    { "source": "/api/games", "destination": "https://qrmania.onrender.com/api/games" },
+    { "source": "/mafia/rules-data.js", "destination": "https://qrmania.onrender.com/mafia/rules-data.js" },
+    { "source": "/socket.io/socket.io.js", "destination": "https://qrmania.onrender.com/socket.io/socket.io.js" },
+    { "source": "/:game/screen", "destination": "/games/:game/screen.html" },
+    { "source": "/:game/player", "destination": "/games/:game/player.html" }
+  ]
+}

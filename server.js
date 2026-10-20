@@ -18,7 +18,11 @@ require("./games"); // se auto-registran vía registerGame(...) al cargar
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+// En el deploy la página la sirve Vercel y el socket se conecta acá desde
+// otro origen — CORS_ORIGIN lo restringe al dominio de Vercel si se define.
+const io = new Server(server, {
+  cors: { origin: process.env.CORS_ORIGIN || "*" },
+});
 
 app.use(express.static("public"));
 
