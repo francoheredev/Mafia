@@ -10,7 +10,7 @@ Versión jugable del proyecto, después del [GDD de La Mafia](docs/gdd/mafia.md)
 
 ## Jugar online
 
-- **Link público (Vercel):** _pendiente — completar con la URL `*.vercel.app`_
+- **Link público (Vercel):** https://mafia-tau-three.vercel.app (servidor: https://qrmania.onrender.com)
 - Abrí el link en la PC/TV, elegí **La Mafia** y escaneá el QR con los celulares (hacen falta **6 a 10 jugadores**; para probarlo solo, abrí varias pestañas de `/mafia/player`).
 - **Arquitectura del deploy:** Vercel sirve el front estático (`public/`, ver `vercel.json`); el servidor Socket.IO (`server.js`, salas y timers en memoria) corre en Render (`render.yaml`), porque las funciones serverless de Vercel no mantienen WebSockets. La URL del servidor está en `public/platform/config.js` y en los rewrites de `vercel.json`.
 - ⚠️ Render free "duerme" el servidor tras 15 min sin uso: la primera carga puede tardar ~50 s en conectar.
