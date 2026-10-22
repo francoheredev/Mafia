@@ -2,7 +2,7 @@
   "name": "la-mafia-lobby",
   "version": "0.1.0",
   "private": true,
-  "description": "Esqueleto técnico: pantalla compartida + celular como control, unidos por un lobby en tiempo real. Primer paso del proyecto La Mafia (ver GDD).",
+  "description": "QRmania: plataforma de juegos de fiesta (pantalla compartida + celulares por QR). Incluye La Mafia, juego de deducción social, y Blind Shot.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

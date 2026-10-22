@@ -105,7 +105,7 @@ const ROLE_INFO = {
     name: "Lycan",
     narrativeName: "Lycan",
     icon: "🐕",
-    team: "ciudad", // hasta que sobreviva a un intento de asesinato — ver killPlayer en server.js
+    team: "ciudad", // hasta que sobreviva a un intento de asesinato — ver killPlayer en games/mafia/logic.js
     hasNightAction: false,
     description: "Parecés un aldeano común... hasta que alguien intenta matarte. La primera vez que eso pase, sobrevivís — y desde ese momento jugás para la Mafia.",
     tip: "Lycan: no tenés voto especial ni acción nocturna. Tu arma es sobrevivir al primer golpe que te den.",

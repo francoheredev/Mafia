@@ -9,6 +9,23 @@
 window.Platform = (function () {
   const socket = io(window.PLATFORM_SERVER_URL || undefined);
 
+  // Aviso de conexión: el servidor del deploy (Render, plan free) se
+  // "duerme" sin tráfico y el primer ingreso puede tardar cerca de un
+  // minuto. Si el socket no conecta enseguida, mostramos un cartel en vez
+  // de una pantalla muerta; se va solo al conectar y vuelve si se cae.
+  const banner = document.createElement("div");
+  banner.className = "connection-banner hidden";
+  banner.textContent = "⏳ Conectando con el servidor… El primer ingreso puede tardar hasta un minuto.";
+  document.addEventListener("DOMContentLoaded", () => document.body.appendChild(banner));
+  let bannerTimer = setTimeout(() => banner.classList.remove("hidden"), 1500);
+  socket.on("connect", () => {
+    clearTimeout(bannerTimer);
+    banner.classList.add("hidden");
+  });
+  socket.on("disconnect", () => {
+    bannerTimer = setTimeout(() => banner.classList.remove("hidden"), 1500);
+  });
+
   function sessionKey(gameId, key) {
     return `${gameId}:${key}`;
   }

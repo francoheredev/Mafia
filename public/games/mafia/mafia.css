@@ -296,3 +296,10 @@ body.screen .history-fab-pos {
 
 /* ---- Info del Amante, en la tarjeta de rol (celular) ---- */
 .lover-info { margin-top: 12px; color: var(--accent); }
+
+/* ---- Fin de partida: salida al menú (cierra el flujo menú → partida → menú) ---- */
+.back-to-menu {
+  text-align: center;
+  text-decoration: none;
+  width: fit-content;
+}

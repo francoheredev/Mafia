@@ -301,3 +301,18 @@ button {
   text-align: left;
   font-size: 0.9rem;
 }
+
+/* Cartel de "conectando" mientras el servidor despierta (ver platform.js). */
+.connection-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  padding: 10px 16px;
+  text-align: center;
+  background: var(--accent);
+  color: #1a1a1a;
+  font-weight: 600;
+}
+.connection-banner.hidden { display: none; }

@@ -435,6 +435,7 @@ function gameOverFinalHtml(winner, roster) {
     <div class="roles-catalog">${rosterHtml}</div>
     <button id="restartBtn" class="advance-btn">🔁 Reiniciar partida (misma sala)</button>
     <p id="restartError" class="error"></p>
+    <a href="/" class="advance-btn back-to-menu">🏠 Volver al menú principal</a>
   `;
 }
 
