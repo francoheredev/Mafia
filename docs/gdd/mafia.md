@@ -101,7 +101,7 @@ detalle completo del stack, compartido con toda la plataforma, en el
 
 ### 6.1 Catálogo de roles (MVP)
 
-10 roles, cada uno con nombre técnico, nombre narrativo (sección 3.1) e
+12 roles, cada uno con nombre técnico, nombre narrativo (sección 3.1) e
 ícono. Los mafiosos se conocen entre sí desde la Fase 0.
 
 | Rol | Narrativo | Ícono | Equipo | Habilidad |
