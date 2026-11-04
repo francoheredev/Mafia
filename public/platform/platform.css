@@ -316,3 +316,29 @@ button {
   font-weight: 600;
 }
 .connection-banner.hidden { display: none; }
+
+/* Selector de idioma (ver public/platform/i18n.js). */
+.lang-selector-slot {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.lang-selector-slot.hidden { display: none; }
+.lang-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--muted, inherit);
+}
+.lang-select select {
+  width: auto;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font: inherit;
+}
+/* Mientras llega la traducción, se atenúa el texto en el idioma fuente. */
+.i18n-loading main {
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}

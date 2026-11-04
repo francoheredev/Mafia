@@ -7,6 +7,8 @@
   "rewrites": [
     { "source": "/", "destination": "/hub/index.html" },
     { "source": "/api/games", "destination": "https://qrmania.onrender.com/api/games" },
+    { "source": "/api/i18n", "destination": "https://qrmania.onrender.com/api/i18n" },
+    { "source": "/api/i18n/:lang", "destination": "https://qrmania.onrender.com/api/i18n/:lang" },
     { "source": "/mafia/rules-data.js", "destination": "https://qrmania.onrender.com/mafia/rules-data.js" },
     { "source": "/socket.io/socket.io.js", "destination": "https://qrmania.onrender.com/socket.io/socket.io.js" },
     { "source": "/:game/screen", "destination": "/games/:game/screen.html" },

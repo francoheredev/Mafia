@@ -1,0 +1,7 @@
+{
+  "source": "es",
+  "languages": [
+    { "code": "es", "name": "Español", "deepl": "ES" },
+    { "code": "en", "name": "English", "deepl": "EN-US" }
+  ]
+}

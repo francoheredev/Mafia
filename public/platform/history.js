@@ -10,10 +10,16 @@ window.Platform.history = {
     const fab = document.getElementById(fabId);
     const list = document.getElementById(listId);
 
+    // Cada entrada trae su clave de traducción (ver pushHistory en el
+    // servidor); las que no la tienen se muestran tal cual.
+    function entryHtml(entry) {
+      return `<li>${entry.icon} ${window.Platform.i18n.tMessage(entry)}</li>`;
+    }
+
     function renderEntries(entries) {
       list.innerHTML = entries.length
-        ? entries.map((e) => `<li>${e.icon} ${e.text}</li>`).join("")
-        : `<li class="hint">Todavía no pasó nada.</li>`;
+        ? entries.map(entryHtml).join("")
+        : `<li class="hint">${window.Platform.i18n.t("platform.history.empty")}</li>`;
       list.scrollTop = list.scrollHeight;
     }
 
@@ -29,7 +35,7 @@ window.Platform.history = {
     });
     socket.on("history:entry", (entry) => {
       if (!modal.classList.contains("hidden")) {
-        list.insertAdjacentHTML("beforeend", `<li>${entry.icon} ${entry.text}</li>`);
+        list.insertAdjacentHTML("beforeend", entryHtml(entry));
         list.scrollTop = list.scrollHeight;
       }
     });

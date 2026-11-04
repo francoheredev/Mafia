@@ -26,6 +26,7 @@ const {
   mafiaOnKick,
 } = require("./logic");
 const { pushHistory, publicPlayerList } = require("../../platform/core/rooms");
+const { fail } = require("../../platform/core/i18n");
 
 // --- Handlers custom de Mafia (game:start, game:restart, night:action,
 //     night:mafiaSuggest, day:advance, day:vote, day:verdict), despachados
@@ -37,7 +38,7 @@ const mafiaSocketHandlers = {
     const { io, socket, room, roomCode } = ctx;
 
     if (socket.data.role !== "screen") {
-      ack?.({ ok: false, error: "Solo la pantalla puede empezar la partida." });
+      ack?.(fail("mafia.error.onlyScreenStarts"));
       return;
     }
 
@@ -46,10 +47,7 @@ const mafiaSocketHandlers = {
       .map(([id]) => id);
 
     if (connectedIds.length < 6 || connectedIds.length > 10) {
-      ack?.({
-        ok: false,
-        error: `Se necesitan entre 6 y 10 jugadores conectados (hay ${connectedIds.length}).`,
-      });
+      ack?.(fail("mafia.error.playerCount", { count: connectedIds.length }));
       return;
     }
 
@@ -110,58 +108,58 @@ const mafiaSocketHandlers = {
       playerCount: connectedIds.length,
       roles: getRolesInPlay(assignment),
     });
-    pushHistory(io, room, roomCode, "🎭", "Los roles fueron repartidos. Comienza la partida.");
+    pushHistory(io, room, roomCode, "🎭", { key: "mafia.history.rolesDealt" });
   },
 
   // --- Ciclo Noche: Mafia (líder rotativo), Vidente y Médico mandan su acción ---
   "night:action": (ctx, { role, targetId }, ack) => {
     const { io, socket, room, roomCode } = ctx;
     if (room.phase !== "night") {
-      ack?.({ ok: false, error: "No es de noche." });
+      ack?.(fail("mafia.error.notNight"));
       return;
     }
     const myRole = room.gameState.assignment[socket.id];
     if (!myRole) {
-      ack?.({ ok: false, error: "No tenés un rol asignado." });
+      ack?.(fail("mafia.error.noRole"));
       return;
     }
     if (!room.players[socket.id]?.alive) {
-      ack?.({ ok: false, error: "Estás eliminado, no podés actuar." });
+      ack?.(fail("mafia.error.deadCantAct"));
       return;
     }
     const target = room.players[targetId];
 
     if (role === "mafia") {
       if (myRole.team !== "mafia") {
-        ack?.({ ok: false, error: "No sos de la mafia." });
+        ack?.(fail("mafia.error.notMafia"));
         return;
       }
       if (socket.id !== room.gameState.night.leaderId) {
-        ack?.({ ok: false, error: "Esta noche no te toca decidir a vos." });
+        ack?.(fail("mafia.error.notYourTurn"));
         return;
       }
       if (!target?.alive) {
-        ack?.({ ok: false, error: "Objetivo inválido." });
+        ack?.(fail("mafia.error.invalidTarget"));
         return;
       }
       if (room.gameState.assignment[targetId]?.team === "mafia") {
-        ack?.({ ok: false, error: "No podés elegir a un cómplice." });
+        ack?.(fail("mafia.error.cantPickAccomplice"));
         return;
       }
       room.gameState.night.mafiaTargetId = targetId;
       room.gameState.night.mafiaSubmitted = true;
     } else if (role === "detective") {
       if (myRole.roleId !== "detective") {
-        ack?.({ ok: false, error: "No sos el Vidente." });
+        ack?.(fail("mafia.error.notDetective"));
         return;
       }
       if (room.gameState.night.detectiveSubmitted) {
-        ack?.({ ok: false, error: "Ya investigaste esta noche." });
+        ack?.(fail("mafia.error.alreadyInvestigated"));
         return;
       }
       const targetRole = room.gameState.assignment[targetId];
       if (!target?.alive || !targetRole || targetId === socket.id) {
-        ack?.({ ok: false, error: "Objetivo inválido." });
+        ack?.(fail("mafia.error.invalidTarget"));
         return;
       }
       room.gameState.night.detectiveTargetId = targetId;
@@ -175,31 +173,31 @@ const mafiaSocketHandlers = {
       });
     } else if (role === "medico") {
       if (myRole.roleId !== "medico") {
-        ack?.({ ok: false, error: "No sos el Médico." });
+        ack?.(fail("mafia.error.notMedico"));
         return;
       }
       if (room.gameState.night.medicoSubmitted) {
-        ack?.({ ok: false, error: "Ya elegiste a quién proteger." });
+        ack?.(fail("mafia.error.alreadyProtected"));
         return;
       }
       if (!target?.alive) {
-        ack?.({ ok: false, error: "Objetivo inválido." });
+        ack?.(fail("mafia.error.invalidTarget"));
         return;
       }
       room.gameState.night.medicoTargetId = targetId;
       room.gameState.night.medicoSubmitted = true;
     } else if (role === "bruja") {
       if (myRole.roleId !== "bruja") {
-        ack?.({ ok: false, error: "No sos la Bruja." });
+        ack?.(fail("mafia.error.notBruja"));
         return;
       }
       if (room.gameState.night.brujaSubmitted) {
-        ack?.({ ok: false, error: "Ya usaste tu poder esta noche." });
+        ack?.(fail("mafia.error.alreadyUsedPower"));
         return;
       }
       const targetRole = room.gameState.assignment[targetId];
       if (!target?.alive || !targetRole) {
-        ack?.({ ok: false, error: "Objetivo inválido." });
+        ack?.(fail("mafia.error.invalidTarget"));
         return;
       }
       room.gameState.night.brujaTargetId = targetId;
@@ -225,22 +223,22 @@ const mafiaSocketHandlers = {
         );
     } else if (role === "carnicero") {
       if (myRole.roleId !== "carnicero") {
-        ack?.({ ok: false, error: "No sos el Carnicero." });
+        ack?.(fail("mafia.error.notCarnicero"));
         return;
       }
       if (room.gameState.night.carniceroSubmitted) {
-        ack?.({ ok: false, error: "Ya elegiste a quién silenciar." });
+        ack?.(fail("mafia.error.alreadySilenced"));
         return;
       }
       if (!target?.alive) {
-        ack?.({ ok: false, error: "Objetivo inválido." });
+        ack?.(fail("mafia.error.invalidTarget"));
         return;
       }
       room.gameState.night.carniceroTargetId = targetId;
       room.gameState.night.carniceroSubmitted = true;
       // El efecto (no poder votar) se aplica recién al Día siguiente — ver startDiscussion/startVoting.
     } else {
-      ack?.({ ok: false, error: "Acción desconocida." });
+      ack?.(fail("mafia.error.unknownAction"));
       return;
     }
 
@@ -257,26 +255,26 @@ const mafiaSocketHandlers = {
   "night:mafiaSuggest": (ctx, { targetId }, ack) => {
     const { io, socket, room } = ctx;
     if (room.phase !== "night") {
-      ack?.({ ok: false, error: "No es de noche." });
+      ack?.(fail("mafia.error.notNight"));
       return;
     }
     const myRole = room.gameState.assignment[socket.id];
     if (!myRole || myRole.team !== "mafia") {
-      ack?.({ ok: false, error: "No sos de la mafia." });
+      ack?.(fail("mafia.error.notMafia"));
       return;
     }
     if (!room.players[socket.id]?.alive) {
-      ack?.({ ok: false, error: "Estás eliminado, no podés actuar." });
+      ack?.(fail("mafia.error.deadCantAct"));
       return;
     }
     if (targetId !== null) {
       const target = room.players[targetId];
       if (!target?.alive) {
-        ack?.({ ok: false, error: "Objetivo inválido." });
+        ack?.(fail("mafia.error.invalidTarget"));
         return;
       }
       if (room.gameState.assignment[targetId]?.team === "mafia") {
-        ack?.({ ok: false, error: "No podés señalar a un cómplice." });
+        ack?.(fail("mafia.error.cantPointAccomplice"));
         return;
       }
     }
@@ -290,7 +288,7 @@ const mafiaSocketHandlers = {
   "day:advance": (ctx, _data, ack) => {
     const { io, socket, room, roomCode } = ctx;
     if (socket.data.role !== "screen") {
-      ack?.({ ok: false, error: "Solo la pantalla puede avanzar de fase." });
+      ack?.(fail("mafia.error.onlyScreenAdvances"));
       return;
     }
     if (room.phase === "role-reveal") {
@@ -317,7 +315,7 @@ const mafiaSocketHandlers = {
     } else {
       // A propósito no hay rama para "game-over": ahí termina la partida, no
       // hay próxima fase a la que avanzar.
-      ack?.({ ok: false, error: "No hay nada para avanzar ahora." });
+      ack?.(fail("mafia.error.nothingToAdvance"));
     }
   },
 
@@ -325,23 +323,23 @@ const mafiaSocketHandlers = {
   "day:vote": (ctx, { targetId }, ack) => {
     const { io, socket, room, roomCode } = ctx;
     if (room.phase !== "day-voting") {
-      ack?.({ ok: false, error: "No es momento de votar." });
+      ack?.(fail("mafia.error.notVotingTime"));
       return;
     }
     if (!room.players[socket.id]?.alive) {
-      ack?.({ ok: false, error: "Estás eliminado, no podés votar." });
+      ack?.(fail("mafia.error.deadCantVote"));
       return;
     }
     if (socket.id === room.gameState.day.silencedId) {
-      ack?.({ ok: false, error: "Estás silenciado, no podés votar hoy." });
+      ack?.(fail("mafia.error.silenced"));
       return;
     }
     if (socket.id in room.gameState.day.nominations) {
-      ack?.({ ok: false, error: "Ya votaste." });
+      ack?.(fail("mafia.error.alreadyVoted"));
       return;
     }
     if (targetId !== null && (!room.players[targetId]?.alive || targetId === socket.id)) {
-      ack?.({ ok: false, error: "Objetivo inválido." });
+      ack?.(fail("mafia.error.invalidTarget"));
       return;
     }
     room.gameState.day.nominations[socket.id] = targetId; // null = abstención
@@ -355,23 +353,23 @@ const mafiaSocketHandlers = {
   "day:verdict": (ctx, { verdict }, ack) => {
     const { io, socket, room, roomCode } = ctx;
     if (room.phase !== "day-trial") {
-      ack?.({ ok: false, error: "No es momento de votar el veredicto." });
+      ack?.(fail("mafia.error.notVerdictTime"));
       return;
     }
     if (socket.id === room.gameState.day.accusedId) {
-      ack?.({ ok: false, error: "No podés votar tu propio juicio." });
+      ack?.(fail("mafia.error.ownTrial"));
       return;
     }
     if (!room.players[socket.id]?.alive) {
-      ack?.({ ok: false, error: "Estás eliminado, no podés votar." });
+      ack?.(fail("mafia.error.deadCantVote"));
       return;
     }
     if (verdict !== "guilty" && verdict !== "innocent") {
-      ack?.({ ok: false, error: "Veredicto inválido." });
+      ack?.(fail("mafia.error.invalidVerdict"));
       return;
     }
     if (socket.id in room.gameState.day.verdicts) {
-      ack?.({ ok: false, error: "Ya votaste." });
+      ack?.(fail("mafia.error.alreadyVoted"));
       return;
     }
     room.gameState.day.verdicts[socket.id] = verdict;
@@ -387,11 +385,11 @@ const mafiaSocketHandlers = {
   "game:restart": (ctx, _data, ack) => {
     const { io, room, roomCode } = ctx;
     if (ctx.socket.data.role !== "screen") {
-      ack?.({ ok: false, error: "Solo la pantalla puede reiniciar la partida." });
+      ack?.(fail("mafia.error.onlyScreenRestarts"));
       return;
     }
     if (room.phase !== "game-over") {
-      ack?.({ ok: false, error: "La partida no terminó todavía." });
+      ack?.(fail("mafia.error.notOver"));
       return;
     }
 

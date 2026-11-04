@@ -7,119 +7,84 @@
 // con habilidad (Detective, Médico, Cazador). Es el "jugador de a pie" clásico
 // del género Mafia/Hombre Lobo.
 
+const { t } = require("../../platform/core/i18n");
+
 const ROLE_INFO = {
   padrino: {
-    name: "Padrino",
-    narrativeName: "Lobo Alfa",
     icon: "🐺",
     team: "mafia",
     hasNightAction: true,
-    description: "Líder de la mafia. El Detective/Vidente lo ve como inocente si lo investiga.",
-    tip: "Padrino: el Detective te ve como inocente si te investiga — usá esa ventaja para no levantar sospechas.",
   },
   mafioso: {
-    name: "Mafioso",
-    narrativeName: "Hombre Lobo",
     icon: "🐾",
     team: "mafia",
     hasNightAction: true,
-    description: "Miembro de la mafia. Participa en la elección nocturna de la víctima.",
-    tip: "Mafioso: tu sugerencia en la reunión nocturna no es definitiva — el líder de turno decide la víctima final.",
   },
   detective: {
-    name: "Detective",
-    narrativeName: "Vidente",
     icon: "🔮",
     team: "ciudad",
     hasNightAction: true,
-    description: "De noche, investigás a un jugador para saber si es de la mafia.",
-    tip: "Detective: guardate el resultado de tus investigaciones para el momento justo — revelarlo muy pronto te convierte en el próximo blanco de la Mafia.",
   },
   medico: {
-    name: "Médico",
-    narrativeName: "Curandero/a",
     icon: "💊",
     team: "ciudad",
     hasNightAction: true,
-    description: "De noche, elegís a alguien para protegerlo de un ataque.",
-    tip: "Médico: no protejas siempre al mismo jugador — si la Mafia te descubre el patrón, dejás de salvar a nadie.",
   },
   cazador: {
-    name: "Cazador",
-    narrativeName: "Cazador",
     icon: "🏹",
     team: "ciudad",
     hasNightAction: false, // se dispara al morir, no es una acción nocturna proactiva
-    description: "Si te matan, disparás automáticamente a otro jugador al azar.",
-    tip: "Cazador: cuidado con eliminar a este sujeto, siempre arrastra a alguien con él.",
   },
   aldeano: {
-    name: "Aldeano",
-    narrativeName: "Aldeano",
     icon: "🌾",
     team: "ciudad",
     hasNightAction: false,
-    description: "Sin habilidad especial. Tu arma es tu voto y tu palabra durante el Día.",
-    tip: "Aldeano: no tenés poder especial, pero tu palabra y tu voto durante el Día valen tanto como cualquier otro.",
   },
   bufon: {
-    name: "Bufón",
-    narrativeName: "Bufón",
     icon: "🃏",
     team: "independiente",
     hasNightAction: false,
-    description: "Ganás vos solo si el pueblo te vota y te expulsa durante el Día.",
-    tip: "Bufón: no jugás para la Mafia ni para la Ciudad — tu única forma de ganar es lograr que el pueblo te vote y te expulse.",
   },
   bruja: {
-    name: "Bruja",
-    narrativeName: "Bruja",
     icon: "🧙‍♀️",
     team: "mafia",
     hasNightAction: true,
     mafiaPower: "reveal", // además del voto colectivo, tiene un poder nocturno propio
-    description: "Miembro de la mafia. Además de participar en la elección de la víctima, de noche podés señalar a un jugador para que toda la Mafia sepa exactamente qué rol tiene.",
-    tip: "Bruja: usá tu visión para detectar amenazas como el Detective o el Médico antes de que se conviertan en un problema.",
   },
   carnicero: {
-    name: "Carnicero",
-    narrativeName: "Carnicero",
     icon: "🔪",
     team: "mafia",
     hasNightAction: true,
     mafiaPower: "silence", // además del voto colectivo, tiene un poder nocturno propio
-    description: "Miembro de la mafia. Además de participar en la elección de la víctima, de noche podés silenciar a un jugador: no podrá votar en la acusación del Día siguiente.",
-    tip: "Carnicero: silenciá a quien creas que puede armar un caso sólido contra la Mafia justo antes de que amanezca.",
   },
   intendente: {
-    name: "Intendente",
-    narrativeName: "Intendente",
     icon: "🎖️",
     team: "ciudad",
     hasNightAction: false,
     voteWeight: 2, // su voto vale doble en la acusación y en el juicio
-    description: "Sin habilidad nocturna, pero tu voto vale doble tanto en la acusación como en el juicio.",
-    tip: "Intendente: tu palabra pesa el doble — elegí con cuidado a quién apoyás.",
   },
   lycan: {
-    name: "Lycan",
-    narrativeName: "Lycan",
     icon: "🐕",
     team: "ciudad", // hasta que sobreviva a un intento de asesinato — ver killPlayer en games/mafia/logic.js
     hasNightAction: false,
-    description: "Parecés un aldeano común... hasta que alguien intenta matarte. La primera vez que eso pase, sobrevivís — y desde ese momento jugás para la Mafia.",
-    tip: "Lycan: no tenés voto especial ni acción nocturna. Tu arma es sobrevivir al primer golpe que te den.",
   },
   amante: {
-    name: "Amante",
-    narrativeName: "Amante",
     icon: "💞",
     team: "ciudad",
     hasNightAction: false,
-    description: "Sin habilidad especial, como el Aldeano — pero conocés en secreto la identidad de tu Amante: el otro jugador con este mismo rol.",
-    tip: "Amante: no tenés poder ni voto especial. Tu única ventaja es saber quién es tu Amante — cuídense mutuamente durante las votaciones.",
   },
 };
+
+// Los textos de cada rol (nombre, nombre narrativo, descripción y consejo)
+// no se escriben acá: salen del catálogo de traducciones (claves
+// roles.<id>.<campo> en public/locales/es.json). El servidor los guarda en
+// español como respaldo; cada cliente los muestra en su idioma por roleId.
+const ROLE_TEXT_FIELDS = ["name", "narrativeName", "description", "tip"];
+Object.entries(ROLE_INFO).forEach(([roleId, info]) => {
+  ROLE_TEXT_FIELDS.forEach((field) => {
+    info[field] = t(`roles.${roleId}.${field}`);
+  });
+});
 
 // Amante es un rol propio (ver ROLE_INFO.amante) — nunca se superpone con
 // otro rol. Solo puede salir a partir de esta cantidad de jugadores, para no

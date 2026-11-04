@@ -1,5 +1,16 @@
 const GAME_ID = "mafia";
 const socket = Platform.socket;
+const { t, tError, tMessage, role: roleText } = Platform.i18n;
+
+// Selector de idioma en la pantalla de unirse (se oculta al entrar a la
+// sala, ver i18n.js), y el "Estás adentro" con el hueco #myName que
+// completa connect.js al unirse.
+const langSelector = document.getElementById("langSelector");
+Platform.i18n.renderSelector(langSelector);
+const hideLangSelector = () => langSelector.classList.add("hidden");
+Platform.i18n.ready.then(() => {
+  document.getElementById("youAreIn").innerHTML = t("mafia.player.youAreIn", { name: '<strong id="myName"></strong>' });
+});
 
 // Feedback táctil en los momentos de tensión del juego. navigator.vibrate
 // solo existe en Android/Chrome — en iPhone (Safari) el `if` de acá adentro
@@ -28,28 +39,28 @@ const connectHandle = Platform.playerConnect.init({
   errorId: "errorMsg",
   waitingId: "waitingRoom",
   myNameId: "myName",
+  onJoined: hideLangSelector,
+  onRejoined: hideLangSelector,
 });
 
 function teamLabel(team) {
-  if (team === "mafia") return "🐺 Los Lobos";
-  if (team === "ciudad") return "🏘️ La Aldea";
-  return "🎭 Errante";
+  return t(`mafia.player.team.${team === "mafia" || team === "ciudad" ? team : "independiente"}`);
 }
 
 function buildRoleCardHtml(role) {
   const accomplicesHtml =
     role.accomplices && role.accomplices.length
-      ? `<p class="accomplices">Tus cómplices: <strong>${role.accomplices.join(", ")}</strong></p>`
+      ? `<p class="accomplices">${t("mafia.player.accomplices", { names: role.accomplices.join(", ") })}</p>`
       : "";
   const loverHtml = myLoverInfo
-    ? `<p class="lover-info">💞 Tu Amante es: <strong>${myLoverInfo.icon} ${myLoverInfo.name}</strong> (${myLoverInfo.roleName})</p>`
+    ? `<p class="lover-info">${t("mafia.player.lover", { icon: myLoverInfo.icon, name: myLoverInfo.name, role: roleText(myLoverInfo.roleId, "name") })}</p>`
     : "";
   return `
     <div class="role-card team-${role.team}">
       <p class="role-team">${teamLabel(role.team)}</p>
       <div class="role-icon">${role.icon}</div>
-      <h2>${role.narrativeName}</h2>
-      <p class="role-desc">${role.description}</p>
+      <h2>${roleText(role.roleId, "narrativeName")}</h2>
+      <p class="role-desc">${roleText(role.roleId, "description")}</p>
       ${accomplicesHtml}
       ${loverHtml}
     </div>
@@ -85,19 +96,19 @@ function buildRulesModalHtml() {
       (r) => `
         <div class="role-chip team-${r.team}">
           <span class="role-chip-icon">${r.icon}</span>
-          <span class="role-chip-name">${r.name}</span>
-          <p class="role-chip-tip">${r.tip}</p>
+          <span class="role-chip-name">${roleText(r.roleId, "name")}</span>
+          <p class="role-chip-tip">${roleText(r.roleId, "tip")}</p>
         </div>
       `
     )
     .join("");
   const rulesHtml_ = data.generalRules
-    .map((s) => `<div class="rules-section"><h3>${s.icon} ${s.title}</h3><p>${s.text}</p></div>`)
+    .map((s) => `<div class="rules-section"><h3>${s.icon} ${t(s.titleKey)}</h3><p>${t(s.textKey)}</p></div>`)
     .join("");
   return `
-    <h2>📖 Cómo se juega</h2>
+    <h2>${t("mafia.rulesModal.howToPlay")}</h2>
     <div class="rules-summary">${rulesHtml_}</div>
-    <h2>🎭 Catálogo de roles</h2>
+    <h2>${t("mafia.rulesModal.catalog")}</h2>
     <div class="roles-catalog">${rolesHtml}</div>
   `;
 }
@@ -117,7 +128,7 @@ socket.on("role:assigned", (role) => {
   waitingRoom.classList.remove("hidden");
   waitingRoom.innerHTML = `
     ${buildRoleCardHtml(role)}
-    <p class="hint">Memorizá tu rol antes de que caiga la noche...</p>
+    <p class="hint">${t("mafia.player.memorize")}</p>
   `;
 });
 
@@ -146,8 +157,8 @@ socket.on("role:transformed", (role) => {
   vibrate(VIBRATE.transform);
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
-      <h2>🐺 ¡Sobreviviste!</h2>
-      <p class="hint">Algo cambió en vos... desde ahora jugás para la Mafia.</p>
+      <h2>${t("mafia.player.survivedTitle")}</h2>
+      <p class="hint">${t("mafia.player.survivedText")}</p>
     </div>
   `;
 });
@@ -155,8 +166,8 @@ socket.on("role:transformed", (role) => {
 socket.on("player:rejoinWaiting", ({ message }) => {
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
-      <h2>⏳ Un momento</h2>
-      <p class="hint">${message}</p>
+      <h2>${t("mafia.player.oneMoment")}</h2>
+      <p class="hint">${tMessage(message)}</p>
     </div>
   `;
 });
@@ -168,8 +179,8 @@ socket.on("player:kicked", ({ reason }) => {
   roleFab.classList.add("hidden");
   rulesFab.classList.add("hidden");
   document.querySelector("main.join-screen").innerHTML = `
-    <h1>🚫 Fuera de la partida</h1>
-    <p class="hint">${reason}</p>
+    <h1>${t("mafia.player.kickedTitle")}</h1>
+    <p class="hint">${tMessage(reason)}</p>
   `;
 });
 
@@ -184,8 +195,8 @@ socket.on("player:removed", ({ removedIds, transformations }) => {
   // el propio expulsado (ese caso ya lo maneja player:kicked).
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
-      <h2>💀 Fuiste eliminado</h2>
-      <p class="hint">Mirá la pantalla para ver qué pasó.</p>
+      <h2>${t("mafia.player.eliminatedTitle")}</h2>
+      <p class="hint">${t("mafia.player.eliminatedText")}</p>
     </div>
   `;
 });
@@ -206,8 +217,8 @@ socket.on("game:restarted", () => {
   const name = saved.name || "";
   const icon = saved.icon || "";
   document.getElementById("waitingRoom").innerHTML = `
-    <p>✅ Estás adentro, <strong id="myName">${icon} ${name}</strong>.</p>
-    <p class="hint">Esperando a que arranque la próxima partida...</p>
+    <p>${t("mafia.player.youAreIn", { name: `<strong id="myName">${icon} ${name}</strong>` })}</p>
+    <p class="hint">${t("mafia.player.waitingNext")}</p>
   `;
 });
 
@@ -236,11 +247,11 @@ function suggestionsListItemsHtml(suggestions) {
             `<li><span class="death-icon">${s.voterIcon}</span>${s.voterName} → ${
               s.targetId
                 ? `<span class="death-icon">${s.targetIcon}</span>${s.targetName}`
-                : "<em>sin decidir</em>"
+                : `<em>${t("mafia.player.undecided")}</em>`
             }</li>`
         )
         .join("")
-    : `<li class="hint">Nadie sugirió un objetivo todavía.</li>`;
+    : `<li class="hint">${t("mafia.player.noSuggestions")}</li>`;
 }
 function mafiaSuggestionsPanelHtml() {
   return `<ul id="mafiaSuggestionsList" class="death-list suggestions-list">${suggestionsListItemsHtml(lastMafiaSuggestions)}</ul>`;
@@ -260,10 +271,10 @@ function brujaRevealPanelHtml() {
     ? brujaReveals
         .map(
           (r) =>
-            `<li><span class="death-icon">${r.targetIcon}</span><strong>${r.targetName}</strong> es <strong>${r.roleName}</strong></li>`
+            `<li><span class="death-icon">${r.targetIcon}</span>${t("mafia.player.brujaRevealItem", { name: r.targetName, role: roleText(r.roleId, "name") })}</li>`
         )
         .join("")
-    : `<li class="hint">La Bruja todavía no reveló nada.</li>`;
+    : `<li class="hint">${t("mafia.player.noBrujaReveal")}</li>`;
   return `<ul id="brujaRevealPanel" class="death-list suggestions-list">${items}</ul>`;
 }
 socket.on("night:brujaReveal", (reveal) => {
@@ -272,18 +283,11 @@ socket.on("night:brujaReveal", (reveal) => {
 });
 
 function gameOverPanelHtml(winner) {
-  const title =
-    winner === "mafia"
-      ? "🐺 Gana la Mafia"
-      : winner === "ciudad"
-      ? "🏘️ Gana la Ciudad"
-      : winner === "bufon"
-      ? "🃏 Gana el Bufón"
-      : "🤝 Empate";
+  const title = t(`mafia.player.over.${["mafia", "ciudad", "bufon"].includes(winner) ? winner : "draw"}`);
   return `
     <div class="night-panel">
       <h2>${title}</h2>
-      <p class="hint">🎉 Partida terminada — mirá la pantalla para ver los roles de todos.</p>
+      <p class="hint">${t("mafia.player.overText")}</p>
     </div>
   `;
 }
@@ -305,8 +309,8 @@ socket.on("night:waiting", () => {
   vibrate(VIBRATE.night);
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
-      <h2>🌙 Cae la noche</h2>
-      <p class="hint">No tenés nada para hacer esta noche. Esperá tranquilo/a...</p>
+      <h2>${t("mafia.player.nightTitle")}</h2>
+      <p class="hint">${t("mafia.player.nothingTonight")}</p>
     </div>
   `;
 });
@@ -317,8 +321,8 @@ socket.on("night:waiting", () => {
 // noche, todo pasa por renderMafiaNightPanel() en vez de pisar el innerHTML
 // directamente, para que un panel no le gane al otro.
 const MAFIA_POWER_CONFIG = {
-  bruja: { icon: "🧙", title: "Revelá el rol de alguien" },
-  carnicero: { icon: "🔪", title: "Silenciá a alguien" },
+  bruja: { icon: "🧙", titleKey: "mafia.player.power.bruja" },
+  carnicero: { icon: "🔪", titleKey: "mafia.player.power.carnicero" },
 };
 
 function renderMafiaNightPanel() {
@@ -335,16 +339,16 @@ function buildMafiaTurnSectionHtml(state) {
   if (state.done) {
     return `
       <div class="night-panel-section">
-        <h2>🐺 Listo</h2>
-        <p class="hint">Elegiste a tu víctima. Esperando al resto...</p>
+        <h2>🐺 ${t("mafia.player.done")}</h2>
+        <p class="hint">${t("mafia.player.victimChosen")}</p>
       </div>
     `;
   }
   if (!state.isLeader) {
     return `
       <div class="night-panel-section">
-        <h2>🐺 Reunión de la Mafia</h2>
-        <p class="hint">Esta noche decide <strong>${state.leaderName}</strong>. Marcá a quién matarías vos — el resto de la Mafia lo ve, pero no es definitivo.</p>
+        <h2>${t("mafia.player.mafiaMeeting")}</h2>
+        <p class="hint">${t("mafia.player.leaderDecides", { name: state.leaderName })}</p>
         <div id="targetButtons" class="target-list"></div>
         ${mafiaSuggestionsPanelHtml()}
         ${brujaRevealPanelHtml()}
@@ -353,8 +357,8 @@ function buildMafiaTurnSectionHtml(state) {
   }
   return `
     <div class="night-panel-section">
-      <h2>🐺 Elegí a la víctima</h2>
-      <p class="hint">Esta noche sos vos quien decide.</p>
+      <h2>${t("mafia.player.pickVictim")}</h2>
+      <p class="hint">${t("mafia.player.youDecide")}</p>
       ${mafiaSuggestionsPanelHtml()}
       ${brujaRevealPanelHtml()}
       <div id="targetButtons" class="target-list"></div>
@@ -377,7 +381,7 @@ function attachMafiaTurnHandlers(state) {
   renderTargetButtons(container, state.targets, (targetId) => {
     socket.emit("night:action", { role: "mafia", targetId }, (res) => {
       if (!res.ok) {
-        document.getElementById("nightError").textContent = res.error;
+        document.getElementById("nightError").textContent = tError(res);
         return;
       }
       mafiaTurnState = { ...mafiaTurnState, done: true };
@@ -391,14 +395,14 @@ function buildMafiaPowerSectionHtml(state) {
   if (state.done) {
     return `
       <div class="night-panel-section">
-        <h2>${config.icon} Listo</h2>
-        <p class="hint">Ya usaste tu poder esta noche.</p>
+        <h2>${config.icon} ${t("mafia.player.done")}</h2>
+        <p class="hint">${t("mafia.player.powerUsed")}</p>
       </div>
     `;
   }
   return `
     <div class="night-panel-section">
-      <h2>${config.icon} ${config.title}</h2>
+      <h2>${config.icon} ${t(config.titleKey)}</h2>
       <div id="mafiaPowerButtons" class="target-list"></div>
       <p id="mafiaPowerError" class="error"></p>
     </div>
@@ -410,7 +414,7 @@ function attachMafiaPowerHandlers(state) {
   renderTargetButtons(container, state.targets, (targetId) => {
     socket.emit("night:action", { role: state.role, targetId }, (res) => {
       if (!res.ok) {
-        document.getElementById("mafiaPowerError").textContent = res.error;
+        document.getElementById("mafiaPowerError").textContent = tError(res);
         return;
       }
       mafiaPowerState = { ...mafiaPowerState, done: true };
@@ -435,8 +439,8 @@ socket.on("night:mafiaPower", ({ role, targets, alreadySubmitted }) => {
 socket.on("day:silenced", () => {
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
-      <h2>🔇 Estás silenciado</h2>
-      <p class="hint">Alguien te silenció anoche — no podés votar en la acusación de hoy.</p>
+      <h2>${t("mafia.player.silencedTitle")}</h2>
+      <p class="hint">${t("mafia.player.silencedText")}</p>
     </div>
   `;
 });
@@ -445,13 +449,13 @@ socket.on("night:yourTurn", ({ role, targets }) => {
   vibrate(VIBRATE.night);
   const waitingRoom = document.getElementById("waitingRoom");
   const config = {
-    detective: { icon: "🔮", title: "Investigá a alguien" },
-    medico: { icon: "💊", title: "Protegé a alguien" },
+    detective: { icon: "🔮", titleKey: "mafia.player.investigate" },
+    medico: { icon: "💊", titleKey: "mafia.player.protect" },
   }[role];
 
   waitingRoom.innerHTML = `
     <div class="night-panel">
-      <h2>${config.icon} ${config.title}</h2>
+      <h2>${config.icon} ${t(config.titleKey)}</h2>
       <div id="targetButtons" class="target-list"></div>
       <p id="nightError" class="error"></p>
     </div>
@@ -459,14 +463,14 @@ socket.on("night:yourTurn", ({ role, targets }) => {
   renderTargetButtons(document.getElementById("targetButtons"), targets, (targetId) => {
     socket.emit("night:action", { role, targetId }, (res) => {
       if (!res.ok) {
-        document.getElementById("nightError").textContent = res.error;
+        document.getElementById("nightError").textContent = tError(res);
         return;
       }
       if (role === "medico") {
         waitingRoom.innerHTML = `
           <div class="night-panel">
-            <h2>💊 Listo</h2>
-            <p class="hint">Ya elegiste a quién proteger. Esperando al resto...</p>
+            <h2>💊 ${t("mafia.player.done")}</h2>
+            <p class="hint">${t("mafia.player.protectedDone")}</p>
           </div>
         `;
       }
@@ -478,11 +482,9 @@ socket.on("night:yourTurn", ({ role, targets }) => {
 socket.on("night:investigateResult", ({ targetName, isMafia }) => {
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
-      <h2>🔮 Resultado</h2>
-      <p class="hint"><strong>${targetName}</strong> ${
-    isMafia ? "ES de la Mafia 🐺" : "NO es de la Mafia ✅"
-  }</p>
-      <p class="hint">Esperando al resto...</p>
+      <h2>${t("mafia.player.resultTitle")}</h2>
+      <p class="hint">${t(isMafia ? "mafia.player.isMafia" : "mafia.player.notMafia", { name: targetName })}</p>
+      <p class="hint">${t("mafia.player.waitingRest")}</p>
     </div>
   `;
 });
@@ -503,14 +505,14 @@ socket.on("night:resolved", ({ deaths, transformations, winner }) => {
   document.getElementById("waitingRoom").innerHTML = iDied
     ? `
       <div class="night-panel">
-        <h2>💀 Te eliminaron</h2>
-        <p class="hint">Mirá la pantalla para el resumen de la noche.</p>
+        <h2>${t("mafia.player.killedTitle")}</h2>
+        <p class="hint">${t("mafia.player.killedText")}</p>
       </div>
     `
     : `
       <div class="night-panel">
-        <h2>☀️ Amanece</h2>
-        <p class="hint">Mirá la pantalla para ver qué pasó esta noche.</p>
+        <h2>${t("mafia.player.dawnTitle")}</h2>
+        <p class="hint">${t("mafia.player.dawnText")}</p>
       </div>
     `;
 });
@@ -520,8 +522,8 @@ socket.on("night:resolved", ({ deaths, transformations, winner }) => {
 socket.on("day:discussionPhone", () => {
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
-      <h2>💬 Es de día</h2>
-      <p class="hint">Discutan en persona quién puede ser sospechoso. Mirá la pantalla.</p>
+      <h2>${t("mafia.player.dayTitle")}</h2>
+      <p class="hint">${t("mafia.player.dayText")}</p>
     </div>
   `;
 });
@@ -530,9 +532,9 @@ socket.on("day:yourVote", ({ targets }) => {
   const waitingRoom = document.getElementById("waitingRoom");
   waitingRoom.innerHTML = `
     <div class="night-panel">
-      <h2>🗳️ ¿A quién acusás?</h2>
+      <h2>${t("mafia.player.whoAccuse")}</h2>
       <div id="targetButtons" class="target-list"></div>
-      <button id="abstainBtn" class="abstain-btn">Abstenerme</button>
+      <button id="abstainBtn" class="abstain-btn">${t("mafia.player.abstain")}</button>
       <p id="nightError" class="error"></p>
     </div>
   `;
@@ -540,13 +542,13 @@ socket.on("day:yourVote", ({ targets }) => {
   const submitVote = (targetId) => {
     socket.emit("day:vote", { targetId }, (res) => {
       if (!res.ok) {
-        document.getElementById("nightError").textContent = res.error;
+        document.getElementById("nightError").textContent = tError(res);
         return;
       }
       waitingRoom.innerHTML = `
         <div class="night-panel">
-          <h2>🗳️ Listo</h2>
-          <p class="hint">Ya votaste. Esperando al resto...</p>
+          <h2>🗳️ ${t("mafia.player.done")}</h2>
+          <p class="hint">${t("mafia.player.votedDone")}</p>
         </div>
       `;
     });
@@ -560,8 +562,8 @@ socket.on("day:yourDefense", () => {
   vibrate(VIBRATE.accused);
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
-      <h2>⚖️ ¡Te acusaron!</h2>
-      <p class="hint">Es tu turno de defenderte en voz alta.</p>
+      <h2>${t("mafia.player.accusedTitle")}</h2>
+      <p class="hint">${t("mafia.player.accusedText")}</p>
     </div>
   `;
 });
@@ -569,8 +571,8 @@ socket.on("day:yourDefense", () => {
 socket.on("day:watchDefense", ({ accusedName }) => {
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
-      <h2>⚖️ Defensa</h2>
-      <p class="hint">Escuchá la defensa de <strong>${accusedName}</strong>.</p>
+      <h2>${t("mafia.player.defenseTitle")}</h2>
+      <p class="hint">${t("mafia.player.listenDefense", { name: accusedName })}</p>
     </div>
   `;
 });
@@ -579,10 +581,10 @@ socket.on("day:yourVerdict", () => {
   const waitingRoom = document.getElementById("waitingRoom");
   waitingRoom.innerHTML = `
     <div class="night-panel">
-      <h2>⚖️ Tu veredicto</h2>
+      <h2>${t("mafia.player.yourVerdict")}</h2>
       <div class="verdict-buttons">
-        <button id="guiltyBtn" class="verdict-btn guilty-btn">Culpable</button>
-        <button id="innocentBtn" class="verdict-btn innocent-btn">Inocente</button>
+        <button id="guiltyBtn" class="verdict-btn guilty-btn">${t("mafia.player.guilty")}</button>
+        <button id="innocentBtn" class="verdict-btn innocent-btn">${t("mafia.player.innocent")}</button>
       </div>
       <p id="nightError" class="error"></p>
     </div>
@@ -591,13 +593,13 @@ socket.on("day:yourVerdict", () => {
   const submitVerdict = (verdict) => {
     socket.emit("day:verdict", { verdict }, (res) => {
       if (!res.ok) {
-        document.getElementById("nightError").textContent = res.error;
+        document.getElementById("nightError").textContent = tError(res);
         return;
       }
       waitingRoom.innerHTML = `
         <div class="night-panel">
-          <h2>⚖️ Listo</h2>
-          <p class="hint">Ya votaste. Esperando al resto...</p>
+          <h2>⚖️ ${t("mafia.player.done")}</h2>
+          <p class="hint">${t("mafia.player.votedDone")}</p>
         </div>
       `;
     });
@@ -610,8 +612,8 @@ socket.on("day:yourVerdict", () => {
 socket.on("day:waitVerdict", () => {
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
-      <h2>⚖️ Están decidiendo</h2>
-      <p class="hint">El resto está votando tu veredicto...</p>
+      <h2>${t("mafia.player.decidingTitle")}</h2>
+      <p class="hint">${t("mafia.player.decidingText")}</p>
     </div>
   `;
 });
@@ -619,8 +621,8 @@ socket.on("day:waitVerdict", () => {
 socket.on("day:noAccusation", () => {
   document.getElementById("waitingRoom").innerHTML = `
     <div class="night-panel">
-      <h2>🤝 Nadie fue acusado</h2>
-      <p class="hint">Mirá la pantalla. Cae la próxima noche...</p>
+      <h2>${t("mafia.player.noAccusationTitle")}</h2>
+      <p class="hint">${t("mafia.player.noAccusationText")}</p>
     </div>
   `;
 });
@@ -641,14 +643,14 @@ socket.on("day:resolved", ({ executed, deaths, transformations, winner }) => {
   document.getElementById("waitingRoom").innerHTML = iWasExecuted
     ? `
       <div class="night-panel">
-        <h2>💀 Te ejecutaron</h2>
-        <p class="hint">Mirá la pantalla para el resumen del juicio.</p>
+        <h2>${t("mafia.player.executedTitle")}</h2>
+        <p class="hint">${t("mafia.player.executedText")}</p>
       </div>
     `
     : `
       <div class="night-panel">
-        <h2>⚰️ Veredicto</h2>
-        <p class="hint">Mirá la pantalla para el resultado del juicio.</p>
+        <h2>${t("mafia.player.verdictTitle")}</h2>
+        <p class="hint">${t("mafia.player.verdictText")}</p>
       </div>
     `;
 });

@@ -6,8 +6,11 @@
 // patrón genérico de FAB + modal que reutilizan roster/chat/historial/
 // reglas/host. No sabe nada de ningún juego en particular — cada juego lo
 // consume, nunca al revés.
-window.Platform = (function () {
-  const socket = io(window.PLATFORM_SERVER_URL || undefined);
+window.Platform = Object.assign(window.Platform || {}, (function () {
+  // Se conecta recién cuando las traducciones están listas (ver i18n.js),
+  // para que ningún evento llegue antes de tener los textos para mostrarlo.
+  const socket = io(window.PLATFORM_SERVER_URL || undefined, { autoConnect: false });
+  window.Platform.i18n.ready.finally(() => socket.connect());
 
   // Aviso de conexión: el servidor del deploy (Render, plan free) se
   // "duerme" sin tráfico y el primer ingreso puede tardar cerca de un
@@ -15,15 +18,18 @@ window.Platform = (function () {
   // de una pantalla muerta; se va solo al conectar y vuelve si se cae.
   const banner = document.createElement("div");
   banner.className = "connection-banner hidden";
-  banner.textContent = "⏳ Conectando con el servidor… El primer ingreso puede tardar hasta un minuto.";
   document.addEventListener("DOMContentLoaded", () => document.body.appendChild(banner));
-  let bannerTimer = setTimeout(() => banner.classList.remove("hidden"), 1500);
+  const showBanner = () => {
+    banner.textContent = window.Platform.i18n.t("platform.connecting");
+    banner.classList.remove("hidden");
+  };
+  let bannerTimer = setTimeout(showBanner, 1500);
   socket.on("connect", () => {
     clearTimeout(bannerTimer);
     banner.classList.add("hidden");
   });
   socket.on("disconnect", () => {
-    bannerTimer = setTimeout(() => banner.classList.remove("hidden"), 1500);
+    bannerTimer = setTimeout(showBanner, 1500);
   });
 
   function sessionKey(gameId, key) {
@@ -76,4 +82,4 @@ window.Platform = (function () {
   }
 
   return { socket, session, wireModal };
-})();
+})());

@@ -12,7 +12,7 @@ window.Platform.roster = {
     players.forEach((p) => {
       const li = document.createElement("li");
       li.innerHTML = `<span class="player-icon">${p.icon || "❔"}</span> ${p.name}${
-        p.connected ? "" : " (desconectado)"
+        p.connected ? "" : window.Platform.i18n.t("platform.disconnected")
       }`;
       li.className = p.connected ? "player online" : "player offline";
       listEl.appendChild(li);

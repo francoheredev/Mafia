@@ -34,7 +34,7 @@ window.Platform.chat = {
         ? messages
             .map((m) => `<li><span class="chat-icon">${m.senderIcon}</span><strong>${m.senderName}:</strong> ${m.text}</li>`)
             .join("")
-        : `<li class="hint">Todavía no hay mensajes.</li>`;
+        : `<li class="hint">${window.Platform.i18n.t("platform.chat.empty")}</li>`;
       log.scrollTop = log.scrollHeight;
     }
 

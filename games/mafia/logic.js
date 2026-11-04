@@ -11,6 +11,7 @@
 const { pushHistory } = require("../../platform/core/rooms");
 const { startTimer } = require("../../platform/core/timer");
 const { getMafiaAccomplices } = require("./roles");
+const { message } = require("../../platform/core/i18n");
 
 // Tope máximo de la noche si a alguien se le hace larga la decisión.
 const NIGHT_TIMEOUT_MS = 60000;
@@ -123,7 +124,7 @@ function startNight(io, room, roomCode) {
   const targets = aliveTargets(room);
 
   io.to(roomCode).emit("night:begin", { number, players: targets });
-  pushHistory(io, room, roomCode, "🌙", `Cae la noche #${number}.`);
+  pushHistory(io, room, roomCode, "🌙", { key: "mafia.history.nightFalls", params: { number } });
 
   aliveIds.forEach((id) => {
     const r = room.gameState.assignment[id];
@@ -283,6 +284,7 @@ function buildFinalRoster(room) {
     name: room.players[id]?.name,
     icon: room.players[id]?.icon,
     alive: Boolean(room.players[id]?.alive),
+    roleId: room.gameState.assignment[id].roleId,
     narrativeName: room.gameState.assignment[id].narrativeName,
     team: room.gameState.assignment[id].team,
   }));
@@ -323,14 +325,14 @@ function resolveNight(io, room, roomCode) {
   });
 
   if (deaths.length === 0 && transformations.length === 0) {
-    pushHistory(io, room, roomCode, saved ? "💊" : "🌙", saved ? "El Médico llegó justo a tiempo. Nadie murió esta noche." : "La Mafia no atacó. Nadie murió esta noche.");
+    pushHistory(io, room, roomCode, saved ? "💊" : "🌙", { key: saved ? "mafia.history.medicoSaved" : "mafia.history.noAttack" });
   } else {
-    deaths.forEach((id) => pushHistory(io, room, roomCode, "💀", `${room.players[id].name} murió esta noche.`));
+    deaths.forEach((id) => pushHistory(io, room, roomCode, "💀", { key: "mafia.history.diedTonight", params: { name: room.players[id].name } }));
     if (transformations.length > 0) {
-      pushHistory(io, room, roomCode, "❓", "Algo protegió a alguien de la Mafia esta noche... y sigue con vida.");
+      pushHistory(io, room, roomCode, "❓", { key: "mafia.history.protectedNight" });
     }
   }
-  if (winner) pushHistory(io, room, roomCode, "🏆", `Ganó: ${winner}.`);
+  if (winner) pushHistory(io, room, roomCode, "🏆", { key: `mafia.history.winner.${winner}` });
 
   if (winner) {
     room.phase = "game-over";
@@ -360,7 +362,7 @@ function startDiscussion(io, room, roomCode) {
 
   io.to(roomCode).emit("day:discussion", { number, players });
   aliveIds.forEach((id) => io.to(id).emit("day:discussionPhone", {}));
-  pushHistory(io, room, roomCode, "💬", `Comienza la discusión del Día #${number}.`);
+  pushHistory(io, room, roomCode, "💬", { key: "mafia.history.discussion", params: { number } });
 
   clearTimeout(room.gameState.day.timer);
   room.gameState.day.timer = startTimer(io, roomCode, room, DISCUSSION_MS, () =>
@@ -440,7 +442,7 @@ function resolveVoting(io, room, roomCode) {
   if (!top) {
     room.phase = "day-resolved";
     io.to(roomCode).emit("day:noAccusation", { results });
-    pushHistory(io, room, roomCode, "🤝", "Nadie fue acusado hoy.");
+    pushHistory(io, room, roomCode, "🤝", { key: "mafia.history.noAccusation" });
     clearTimeout(room.gameState.day.timer);
     room.gameState.day.timer = setTimeout(() => startNight(io, room, roomCode), DAY_RESULT_MS);
     return;
@@ -454,7 +456,7 @@ function resolveVoting(io, room, roomCode) {
   if (tiedIds.length > 1) {
     const drawnId = tiedIds[Math.floor(Math.random() * tiedIds.length)];
     room.gameState.day.accusedId = drawnId;
-    pushHistory(io, room, roomCode, "🎲", `Hubo un empate en la votación — el azar señaló a ${room.players[drawnId].name}.`);
+    pushHistory(io, room, roomCode, "🎲", { key: "mafia.history.tieDraw", params: { name: room.players[drawnId].name } });
     startDefense(io, room, roomCode, results);
     return;
   }
@@ -482,7 +484,7 @@ function startDefense(io, room, roomCode, votingResults) {
     .forEach((id) =>
       io.to(id).emit("day:watchDefense", { accusedName: room.players[accusedId].name })
     );
-  pushHistory(io, room, roomCode, "⚖️", `${room.players[accusedId].name} fue acusado/a y va a juicio.`);
+  pushHistory(io, room, roomCode, "⚖️", { key: "mafia.history.accused", params: { name: room.players[accusedId].name } });
 
   clearTimeout(room.gameState.day.timer);
   room.gameState.day.timer = startTimer(io, roomCode, room, DEFENSE_MS, () =>
@@ -576,15 +578,18 @@ function resolveTrial(io, room, roomCode) {
     room,
     roomCode,
     executed ? "💀" : "🕊️",
-    `${room.players[accusedId].name} fue ${executed ? "ejecutado/a" : "absuelto/a"} (culpable: ${guiltyCount}, inocente: ${innocentCount}).`
+    {
+      key: executed ? "mafia.history.executed" : "mafia.history.acquitted",
+      params: { name: room.players[accusedId].name, guilty: guiltyCount, innocent: innocentCount },
+    }
   );
   // deaths[0] es el ejecutado (ya registrado arriba); lo que sigue es la
   // venganza en cadena del Cazador, si corresponde.
-  deaths.slice(1).forEach((id) => pushHistory(io, room, roomCode, "💀", `${room.players[id].name} también murió.`));
+  deaths.slice(1).forEach((id) => pushHistory(io, room, roomCode, "💀", { key: "mafia.history.alsoDied", params: { name: room.players[id].name } }));
   if (transformations.length > 0) {
-    pushHistory(io, room, roomCode, "❓", "Algo protegió a alguien de la ejecución... y sigue con vida.");
+    pushHistory(io, room, roomCode, "❓", { key: "mafia.history.protectedExecution" });
   }
-  if (winner) pushHistory(io, room, roomCode, "🏆", `Ganó: ${winner}.`);
+  if (winner) pushHistory(io, room, roomCode, "🏆", { key: `mafia.history.winner.${winner}` });
 
   if (winner) {
     room.phase = "game-over";
@@ -722,7 +727,7 @@ function mafiaOnReconnect({ io, room, roomCode, playerId }) {
           (myRole.roleId === "medico" && room.gameState.night.medicoSubmitted);
         if (alreadySubmitted) {
           io.to(playerId).emit("player:rejoinWaiting", {
-            message: "Ya hiciste tu elección de esta noche. Esperando al resto...",
+            message: message("mafia.rejoin.alreadyChose"),
           });
         } else {
           io.to(playerId).emit("night:yourTurn", {
@@ -741,7 +746,7 @@ function mafiaOnReconnect({ io, room, roomCode, playerId }) {
       if (playerId === room.gameState.day.silencedId) {
         io.to(playerId).emit("day:silenced", {});
       } else if (playerId in room.gameState.day.nominations) {
-        io.to(playerId).emit("player:rejoinWaiting", { message: "Ya votaste. Esperando al resto..." });
+        io.to(playerId).emit("player:rejoinWaiting", { message: message("mafia.rejoin.alreadyVoted") });
       } else {
         io.to(playerId).emit("day:yourVote", { targets: aliveTargets(room, [playerId]) });
       }
@@ -762,7 +767,7 @@ function mafiaOnReconnect({ io, room, roomCode, playerId }) {
       break;
     case "dawn":
     case "day-resolved":
-      io.to(playerId).emit("player:rejoinWaiting", { message: "Mirá la pantalla para ver qué está pasando..." });
+      io.to(playerId).emit("player:rejoinWaiting", { message: message("mafia.rejoin.watchScreen") });
       break;
     default:
       break;
@@ -792,7 +797,7 @@ function mafiaOnKick({ io, room, roomCode, targetId }) {
   transformations.forEach((id) => applyLycanTransformSideEffects(io, room, id));
 
   if (targetSocket) {
-    targetSocket.emit("player:kicked", { reason: "Fuiste expulsado por el anfitrión." });
+    targetSocket.emit("player:kicked", { reason: message("kick.reason") });
     targetSocket.disconnect(true);
   }
   io.to(roomCode).emit("player:removed", { removedIds: deaths, transformations });

@@ -2,15 +2,15 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
-<title>La Mafia — Pantalla</title>
+<title data-i18n="mafia.screen.pageTitle"></title>
 <link rel="stylesheet" href="/platform/platform.css" />
 <link rel="stylesheet" href="/games/mafia/mafia.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body class="screen">
   <main class="lobby-screen">
-    <h1>🐺 La Mafia</h1>
-    <p class="subtitle">Escaneá el código con tu celular para unirte</p>
+    <h1 data-i18n="mafia.title"></h1>
+    <p class="subtitle" data-i18n="mafia.screen.scanToJoin"></p>
 
     <div class="code-panel">
       <div id="qrcode"></div>
@@ -18,10 +18,10 @@
     </div>
 
     <section class="players-panel">
-      <h2>Jugadores en la sala (<span id="playerCount">0</span>)</h2>
+      <h2><span data-i18n="mafia.screen.playersInRoom"></span> (<span id="playerCount">0</span>)</h2>
       <ul id="playerList" class="player-list"></ul>
-      <p class="hint">Necesitás mínimo 6 jugadores para arrancar (ver GDD).</p>
-      <button id="startBtn" disabled>Empezar partida</button>
+      <p class="hint" data-i18n="mafia.screen.minPlayers"></p>
+      <button id="startBtn" disabled data-i18n="mafia.screen.start"></button>
       <p id="startError" class="error"></p>
     </section>
   </main>
@@ -43,7 +43,7 @@
   <div id="historyModal" class="role-modal hidden">
     <div class="role-modal-panel">
       <button id="historyModalClose" class="role-modal-close">✕</button>
-      <h2>📜 Historial</h2>
+      <h2 data-i18n="platform.history.title"></h2>
       <ul id="historyList" class="history-list"></ul>
     </div>
   </div>
@@ -52,13 +52,14 @@
   <div id="hostModal" class="role-modal hidden">
     <div class="role-modal-panel">
       <button id="hostModalClose" class="role-modal-close">✕</button>
-      <h2>Jugadores</h2>
+      <h2 data-i18n="mafia.screen.hostPlayers"></h2>
       <ul id="hostModalContent" class="host-roster"></ul>
     </div>
   </div>
 
   <script src="/mafia/rules-data.js"></script>
   <script src="/platform/config.js"></script>
+  <script src="/platform/i18n.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/platform/platform.js"></script>
   <script src="/platform/roster.js"></script>

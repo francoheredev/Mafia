@@ -3,19 +3,21 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-<title>Juegos</title>
+<title data-i18n="hub.pageTitle"></title>
 <link rel="stylesheet" href="/platform/platform.css" />
 <link rel="stylesheet" href="/hub/hub.css" />
 </head>
 <body>
   <main class="hub-screen">
-    <h1>🎉 Elegí un juego</h1>
-    <p class="subtitle">Abrí la pantalla en una PC/TV y el celular de cada jugador entra por su lado.</p>
+    <div id="langSelector" class="lang-selector-slot"></div>
+    <h1 data-i18n="hub.title"></h1>
+    <p class="subtitle" data-i18n="hub.subtitle"></p>
     <ul id="gameList" class="game-list">
-      <li class="hint">Cargando juegos...</li>
+      <li class="hint" data-i18n="hub.loading"></li>
     </ul>
   </main>
 
+  <script src="/platform/i18n.js"></script>
   <script src="/hub/hub.js"></script>
 </body>
 </html>

@@ -60,7 +60,7 @@ window.Platform.playerConnect = {
 
       socket.emit("player:join", { code, name }, (res) => {
         if (!res.ok) {
-          errorMsg.textContent = res.error;
+          errorMsg.textContent = window.Platform.i18n.tError(res);
           return;
         }
         form.classList.add("hidden");
@@ -82,7 +82,7 @@ window.Platform.playerConnect = {
           session.clear(gameId);
           form.classList.remove("hidden");
           waitingRoom.classList.add("hidden");
-          errorMsg.textContent = res.error;
+          errorMsg.textContent = window.Platform.i18n.tError(res);
           onRejoinFailed?.(res);
           return;
         }

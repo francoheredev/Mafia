@@ -1,5 +1,6 @@
 const GAME_ID = "mafia";
 const socket = Platform.socket;
+const { t, tError, role } = Platform.i18n;
 
 // Se guarda para poder reconstruir el lobby (QR incluido) cuando se reinicia
 // la partida en la misma sala, sin tener que crear una sala nueva.
@@ -54,9 +55,9 @@ function speak(text) {
   window.speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(text);
   const voices = window.speechSynthesis.getVoices();
-  const esVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("es"));
-  if (esVoice) utter.voice = esVoice;
-  utter.lang = esVoice?.lang || "es-ES";
+  const voice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith(Platform.i18n.lang));
+  if (voice) utter.voice = voice;
+  utter.lang = voice?.lang || Platform.i18n.lang;
   utter.rate = 0.95;
   window.speechSynthesis.speak(utter);
 }
@@ -127,7 +128,7 @@ document.getElementById("startBtn").addEventListener("click", () => {
   const startError = document.getElementById("startError");
   startError.textContent = "";
   socket.emit("game:start", null, (res) => {
-    if (!res.ok) startError.textContent = res.error;
+    if (!res.ok) startError.textContent = tError(res);
   });
 });
 
@@ -152,19 +153,19 @@ function buildRulesModalHtml() {
       (r) => `
         <div class="role-chip team-${r.team}">
           <span class="role-chip-icon">${r.icon}</span>
-          <span class="role-chip-name">${r.name}</span>
-          <p class="role-chip-tip">${r.tip}</p>
+          <span class="role-chip-name">${role(r.roleId, "name")}</span>
+          <p class="role-chip-tip">${role(r.roleId, "tip")}</p>
         </div>
       `
     )
     .join("");
   const rulesHtml_ = data.generalRules
-    .map((s) => `<div class="rules-section"><h3>${s.icon} ${s.title}</h3><p>${s.text}</p></div>`)
+    .map((s) => `<div class="rules-section"><h3>${s.icon} ${t(s.titleKey)}</h3><p>${t(s.textKey)}</p></div>`)
     .join("");
   return `
-    <h2>📖 Cómo se juega</h2>
+    <h2>${t("mafia.rulesModal.howToPlay")}</h2>
     <div class="rules-summary">${rulesHtml_}</div>
-    <h2>🎭 Catálogo de roles</h2>
+    <h2>${t("mafia.rulesModal.catalog")}</h2>
     <div class="roles-catalog">${rolesHtml}</div>
   `;
 }
@@ -185,11 +186,11 @@ function renderHostRoster(players) {
   hostModalContent.innerHTML = players
     .map((p) => {
       const dead = p.alive === false;
-      const status = dead ? " 💀" : p.connected ? "" : " (desconectado)";
+      const status = dead ? " 💀" : p.connected ? "" : t("platform.disconnected");
       return `
         <li>
           <span>${p.icon || "❔"} ${p.name}${status}</span>
-          <button class="kick-btn" data-id="${p.id}" ${dead ? "disabled" : ""}>✕ Expulsar</button>
+          <button class="kick-btn" data-id="${p.id}" ${dead ? "disabled" : ""}>${t("mafia.screen.kick")}</button>
         </li>
       `;
     })
@@ -231,17 +232,17 @@ function renderScreen(html) {
 // noche/día/fin de partida.
 async function renderLobbyShell(code) {
   renderScreen(`
-    <h1>🐺 La Mafia</h1>
-    <p class="subtitle">Escaneá el código con tu celular para unirte</p>
+    <h1>${t("mafia.title")}</h1>
+    <p class="subtitle">${t("mafia.screen.scanToJoin")}</p>
     <div class="code-panel">
       <div id="qrcode"></div>
       <div class="room-code" id="roomCode">${code}</div>
     </div>
     <section class="players-panel">
-      <h2>Jugadores en la sala (<span id="playerCount">0</span>)</h2>
+      <h2>${t("mafia.screen.playersInRoom")} (<span id="playerCount">0</span>)</h2>
       <ul id="playerList" class="player-list"></ul>
-      <p class="hint">Necesitás mínimo 6 jugadores para arrancar (ver GDD).</p>
-      <button id="startBtn" disabled>Empezar partida</button>
+      <p class="hint">${t("mafia.screen.minPlayers")}</p>
+      <button id="startBtn" disabled>${t("mafia.screen.start")}</button>
       <p id="startError" class="error"></p>
     </section>
   `);
@@ -255,7 +256,7 @@ async function renderLobbyShell(code) {
     const startError = document.getElementById("startError");
     startError.textContent = "";
     socket.emit("game:start", null, (res) => {
-      if (!res.ok) startError.textContent = res.error;
+      if (!res.ok) startError.textContent = tError(res);
     });
   });
 }
@@ -305,7 +306,7 @@ function playNarrativeManual(steps, onComplete) {
   let i = 0;
   function render() {
     const isLast = i === steps.length - 1;
-    const label = steps[i].nextLabel || (isLast ? "Continuar →" : "Siguiente →");
+    const label = steps[i].nextLabel || t(isLast ? "mafia.screen.continue" : "mafia.screen.next");
     container.classList.remove("narrative-fade-in");
     container.innerHTML = `${steps[i].html}<button id="narrativeAdvanceBtn" class="advance-btn">${label}</button>`;
     void container.offsetWidth; // reinicia la animación CSS
@@ -328,8 +329,8 @@ function roleIntroBeat(r) {
     <div class="narrative-beat">
       <div class="role-chip team-${r.team}">
         <span class="role-chip-icon">${r.icon}</span>
-        <span class="role-chip-name">${r.narrativeName}${r.count > 1 ? ` ×${r.count}` : ""}</span>
-        <p class="role-chip-tip">${r.tip}</p>
+        <span class="role-chip-name">${role(r.roleId, "narrativeName")}${r.count > 1 ? ` ×${r.count}` : ""}</span>
+        <p class="role-chip-tip">${role(r.roleId, "tip")}</p>
       </div>
     </div>
   `;
@@ -337,24 +338,24 @@ function roleIntroBeat(r) {
 
 socket.on("game:started", ({ playerCount, roles }) => {
   const ruleSteps = (window.GAME_RULES?.generalRules || []).map((s) => ({
-    html: narrativeBeat(s.icon, `<strong>${s.title}</strong><br>${s.text}`),
+    html: narrativeBeat(s.icon, `<strong>${t(s.titleKey)}</strong><br>${t(s.textKey)}`),
   }));
   const roleSteps = roles.map((r) => ({ html: roleIntroBeat(r) }));
 
   const steps = [
     {
       html: `
-        <h1>🎭 Roles repartidos</h1>
-        <p class="subtitle">${playerCount} jugadores ya tienen su rol en el celular.</p>
-        <p class="hint">Antes de que caiga la noche, repasemos cómo se juega...</p>
+        <h1>${t("mafia.screen.rolesDealt")}</h1>
+        <p class="subtitle">${t("mafia.screen.rolesDealtSubtitle", { count: playerCount })}</p>
+        <p class="hint">${t("mafia.screen.rulesIntro")}</p>
       `,
-      nextLabel: "Empezar →",
+      nextLabel: t("mafia.screen.begin"),
     },
     ...ruleSteps,
-    { html: `<p class="hint">Estos son los roles en juego esta partida (en secreto, cada quien sabe el suyo):</p>`, nextLabel: "Ver roles →" },
+    { html: `<p class="hint">${t("mafia.screen.rolesInPlay")}</p>`, nextLabel: t("mafia.screen.seeRoles") },
     ...roleSteps,
   ];
-  steps[steps.length - 1].nextLabel = "🌙 Que caiga la noche";
+  steps[steps.length - 1].nextLabel = t("mafia.screen.letNightFall");
 
   playNarrativeManual(steps, () => socket.emit("day:advance"));
 });
@@ -383,7 +384,7 @@ function renderPlayerCircle(players, centerIcon) {
 function renderVoteResults(results) {
   if (!results.length) return "";
   return `<ul class="death-list">${results
-    .map((r) => `<li>${r.icon} <strong>${r.name}</strong> — ${r.votes} voto${r.votes === 1 ? "" : "s"}</li>`)
+    .map((r) => `<li>${r.icon} <strong>${r.name}</strong> — ${t(r.votes === 1 ? "mafia.screen.votes.one" : "mafia.screen.votes.other", { count: r.votes })}</li>`)
     .join("")}</ul>`;
 }
 
@@ -392,15 +393,15 @@ function renderVoteResults(results) {
 // sí muestra quién era quién.
 function gameOverBeat(winner) {
   if (winner === "mafia") {
-    return narrativeBeat("🐺", "La Mafia ya controla el pueblo entero...");
+    return narrativeBeat("🐺", t("mafia.screen.beat.mafiaWins"));
   }
   if (winner === "ciudad") {
-    return narrativeBeat("🏘️", "El último mafioso ha caído. La aldea respira tranquila...");
+    return narrativeBeat("🏘️", t("mafia.screen.beat.ciudadWins"));
   }
   if (winner === "bufon") {
-    return narrativeBeat("🃏", "El pueblo cae en la trampa: ¡acaban de expulsar al Bufón!");
+    return narrativeBeat("🃏", t("mafia.screen.beat.bufonWins"));
   }
-  return narrativeBeat("🤝", "No queda nadie en pie para contarlo...");
+  return narrativeBeat("🤝", t("mafia.screen.beat.draw"));
 }
 
 // Sting al llegar al resultado final de la partida.
@@ -411,31 +412,32 @@ function playGameOverSting(winner) {
 }
 
 function gameOverFinalHtml(winner, roster) {
-  const title =
+  const title = t(
     winner === "mafia"
-      ? "🐺 ¡Gana la Mafia!"
+      ? "mafia.screen.title.mafiaWins"
       : winner === "ciudad"
-      ? "🏘️ ¡Gana la Ciudad!"
+      ? "mafia.screen.title.ciudadWins"
       : winner === "bufon"
-      ? "🃏 ¡Gana el Bufón!"
-      : "🤝 Empate — nadie quedó en pie";
+      ? "mafia.screen.title.bufonWins"
+      : "mafia.screen.title.draw"
+  );
   const rosterHtml = (roster || [])
     .map(
       (p) => `
         <div class="role-chip team-${p.team}">
           <span class="role-chip-icon">${p.icon}</span>
-          <span class="role-chip-name">${p.name} — ${p.narrativeName}${p.alive ? "" : " 💀"}</span>
+          <span class="role-chip-name">${p.name} — ${role(p.roleId, "narrativeName")}${p.alive ? "" : " 💀"}</span>
         </div>
       `
     )
     .join("");
   return `
     <h1>${title}</h1>
-    <p class="subtitle">La partida terminó. Estos eran los roles de todos:</p>
+    <p class="subtitle">${t("mafia.screen.gameOverSubtitle")}</p>
     <div class="roles-catalog">${rosterHtml}</div>
-    <button id="restartBtn" class="advance-btn">🔁 Reiniciar partida (misma sala)</button>
+    <button id="restartBtn" class="advance-btn">${t("mafia.screen.restart")}</button>
     <p id="restartError" class="error"></p>
-    <a href="/" class="advance-btn back-to-menu">🏠 Volver al menú principal</a>
+    <a href="/" class="advance-btn back-to-menu">${t("mafia.screen.backToMenu")}</a>
   `;
 }
 
@@ -447,7 +449,7 @@ function attachRestartHandler() {
     socket.emit("game:restart", null, (res) => {
       if (!res.ok) {
         const el = document.getElementById("restartError");
-        if (el) el.textContent = res.error;
+        if (el) el.textContent = tError(res);
       }
     });
   });
@@ -470,42 +472,42 @@ socket.on("game:restarted", () => {
 
 socket.on("night:begin", ({ number, players }) => {
   renderScreen(`
-    <h1>🌙 Cae la noche (#${number})</h1>
-    <p class="subtitle">Los jugadores están decidiendo en su celular...</p>
+    <h1>${t("mafia.screen.nightTitle", { number })}</h1>
+    <p class="subtitle">${t("mafia.screen.nightSubtitle")}</p>
     ${renderPlayerCircle(players, "🔥")}
     <ul class="night-progress">
-      <li id="npMafia">🐺 La Mafia elige a su víctima…</li>
-      <li id="npDetective">🔮 El Vidente investiga…</li>
-      <li id="npMedico">💊 El Médico protege…</li>
+      <li id="npMafia">${t("mafia.screen.npMafia")}</li>
+      <li id="npDetective">${t("mafia.screen.npDetective")}</li>
+      <li id="npMedico">${t("mafia.screen.npMedico")}</li>
     </ul>
     <p class="night-timer" id="timerDisplay"></p>
   `);
 
-  timerFormat = (s) => `⏳ ${s}s para que todos decidan`;
-  speak(`Cae la noche número ${number}. Todos deciden en su celular.`);
+  timerFormat = (s) => t("mafia.screen.timer.night", { seconds: s });
+  speak(t("mafia.screen.speak.night", { number }));
 });
 
 socket.on("night:resolved", ({ number, deaths, transformations, saved, winner, roster }) => {
   const steps = [
-    { html: narrativeBeat("🌫️", "La niebla se aferra al pueblo mientras la noche cae sobre todos...") },
-    { html: narrativeBeat("🐺", "Entre las sombras, la Mafia acecha en silencio...") },
+    { html: narrativeBeat("🌫️", t("mafia.screen.beat.fog")) },
+    { html: narrativeBeat("🐺", t("mafia.screen.beat.mafiaLurks")) },
   ];
 
   if (deaths.length === 0) {
     steps.push({
       html: saved
-        ? narrativeBeat("💊", "Algo — o alguien — los detiene justo a tiempo...")
-        : narrativeBeat("🌙", "Pero esta noche, la Mafia no encuentra su oportunidad..."),
+        ? narrativeBeat("💊", t("mafia.screen.beat.saved"))
+        : narrativeBeat("🌙", t("mafia.screen.beat.noChance")),
     });
   } else {
     const [victim, ...rest] = deaths;
     steps.push(
       {
-        html: narrativeBeat("🩸", `Se abalanzan sobre <strong>${victim.icon} ${victim.name}</strong>...`),
+        html: narrativeBeat("🩸", t("mafia.screen.beat.pounce", { icon: victim.icon, name: victim.name })),
         delayMs: 2600,
       },
       {
-        html: narrativeBeat("💀", `...y el amanecer llega sin <strong>${victim.name}</strong>.`),
+        html: narrativeBeat("💀", t("mafia.screen.beat.dawnWithout", { name: victim.name })),
         delayMs: 2600,
         sfx: "death",
       }
@@ -514,10 +516,7 @@ socket.on("night:resolved", ({ number, deaths, transformations, saved, winner, r
       // No se nombra el rol acá — la venganza del Cazador ya se infiere
       // por eliminación, no hace falta subrayarlo.
       steps.push({
-        html: narrativeBeat(
-          "🏹",
-          `Pero antes de caer, algo se despierta... y arrastra también a <strong>${extra.icon} ${extra.name}</strong>.`
-        ),
+        html: narrativeBeat("🏹", t("mafia.screen.beat.hunterRevenge", { icon: extra.icon, name: extra.name })),
         delayMs: 2600,
         sfx: "death",
       });
@@ -527,12 +526,9 @@ socket.on("night:resolved", ({ number, deaths, transformations, saved, winner, r
   // Alguien sobrevivió a un ataque que debería haberlo matado — evento
   // observable en la ficción (a diferencia de reveals/silencios, que son
   // secretos y nunca llegan a la pantalla compartida).
-  (transformations || []).forEach((t) => {
+  (transformations || []).forEach((tr) => {
     steps.push({
-      html: narrativeBeat(
-        "🐺",
-        `¡<strong>${t.icon} ${t.name}</strong> no pudo ser abatido/a! Algo despierta en su interior... y ahora corre con la Mafia.`
-      ),
+      html: narrativeBeat("🐺", t("mafia.screen.beat.lycanTurns", { icon: tr.icon, name: tr.name })),
       delayMs: 2600,
       sfx: "ominous",
     });
@@ -541,20 +537,16 @@ socket.on("night:resolved", ({ number, deaths, transformations, saved, winner, r
   let finalHtml;
   if (deaths.length === 0) {
     finalHtml = `
-      <h1>☀️ Amanece (noche #${number})</h1>
-      <p class="hint">${
-        saved
-          ? "💊 El Médico llegó justo a tiempo. Nadie murió esta noche."
-          : "La Mafia no atacó. Nadie murió esta noche."
-      }</p>
+      <h1>${t("mafia.screen.dawnTitle", { number })}</h1>
+      <p class="hint">${t(saved ? "mafia.screen.dawnSaved" : "mafia.screen.dawnNoAttack")}</p>
     `;
   } else {
     finalHtml = `
-      <h1>☀️ Amanece (noche #${number})</h1>
+      <h1>${t("mafia.screen.dawnTitle", { number })}</h1>
       <ul class="death-list">${deaths
         .map(
           (d) =>
-            `<li>💀 <span class="death-icon">${d.icon}</span> <strong>${d.name}</strong> murió esta noche.</li>`
+            `<li>💀 <span class="death-icon">${d.icon}</span> ${t("mafia.screen.diedTonight", { name: d.name })}</li>`
         )
         .join("")}</ul>
     `;
@@ -576,28 +568,28 @@ socket.on("night:resolved", ({ number, deaths, transformations, saved, winner, r
 
 socket.on("day:discussion", ({ number, players }) => {
   renderScreen(`
-    <h1>💬 Discusión (Día #${number})</h1>
-    <p class="subtitle">Discutan en persona quién puede ser sospechoso...</p>
+    <h1>${t("mafia.screen.discussionTitle", { number })}</h1>
+    <p class="subtitle">${t("mafia.screen.discussionSubtitle")}</p>
     ${renderPlayerCircle(players, "🏘️")}
     <p class="night-timer" id="timerDisplay"></p>
-    <button id="advanceBtn" class="advance-btn">Pasar a la votación →</button>
+    <button id="advanceBtn" class="advance-btn">${t("mafia.screen.toVoting")}</button>
   `);
-  timerFormat = (s) => `⏳ ${s}s de discusión`;
+  timerFormat = (s) => t("mafia.screen.timer.discussion", { seconds: s });
   document.getElementById("advanceBtn").addEventListener("click", () => {
     socket.emit("day:advance");
   });
-  speak("Comienza la discusión del día.");
+  speak(t("mafia.screen.speak.discussion"));
 });
 
 socket.on("day:voting", ({ players }) => {
   renderScreen(`
-    <h1>🗳️ Votación</h1>
-    <p class="subtitle">Cada uno vota en su celular a quién acusar (o se abstiene)...</p>
+    <h1>${t("mafia.screen.votingTitle")}</h1>
+    <p class="subtitle">${t("mafia.screen.votingSubtitle")}</p>
     ${renderPlayerCircle(players, "🗳️")}
     <p class="night-timer" id="timerDisplay"></p>
   `);
-  timerFormat = (s) => `⏳ ${s}s para votar`;
-  speak("Es hora de votar.");
+  timerFormat = (s) => t("mafia.screen.timer.voting", { seconds: s });
+  speak(t("mafia.screen.speak.voting"));
 });
 
 socket.on("day:votingProgress", ({ votedIds }) => {
@@ -607,12 +599,12 @@ socket.on("day:votingProgress", ({ votedIds }) => {
 
 socket.on("day:noAccusation", ({ results }) => {
   const steps = [
-    { html: narrativeBeat("🗳️", "Los votos quedan repartidos entre varios...") },
-    { html: narrativeBeat("🤝", "Nadie logra ponerse de acuerdo. La aldea sigue igual.") },
+    { html: narrativeBeat("🗳️", t("mafia.screen.beat.votesSplit")) },
+    { html: narrativeBeat("🤝", t("mafia.screen.beat.noAgreement")) },
   ];
 
   const finalHtml = `
-    <h1>🤝 Nadie fue acusado</h1>
+    <h1>${t("mafia.screen.noAccusationTitle")}</h1>
     ${renderVoteResults(results)}
   `;
 
@@ -621,40 +613,40 @@ socket.on("day:noAccusation", ({ results }) => {
 
 socket.on("day:defense", ({ accused, results }) => {
   renderScreen(`
-    <h1>⚖️ Defensa</h1>
-    <p class="subtitle"><span class="accused-icon">${accused.icon}</span> <strong>${accused.name}</strong> es el/la más acusado/a. Tiene la palabra...</p>
+    <h1>${t("mafia.screen.defenseTitle")}</h1>
+    <p class="subtitle"><span class="accused-icon">${accused.icon}</span> ${t("mafia.screen.defenseSubtitle", { name: accused.name })}</p>
     ${renderVoteResults(results)}
     <p class="night-timer" id="timerDisplay"></p>
-    <button id="advanceBtn" class="advance-btn">Pasar al juicio →</button>
+    <button id="advanceBtn" class="advance-btn">${t("mafia.screen.toTrial")}</button>
   `);
-  timerFormat = (s) => `⏳ ${s}s para defenderse`;
+  timerFormat = (s) => t("mafia.screen.timer.defense", { seconds: s });
   document.getElementById("advanceBtn").addEventListener("click", () => {
     socket.emit("day:advance");
   });
-  speak(`${accused.name} tiene la palabra para defenderse.`);
+  speak(t("mafia.screen.speak.defense", { name: accused.name }));
 });
 
 socket.on("day:trial", ({ accused }) => {
   renderScreen(`
-    <h1>⚖️ Juicio</h1>
-    <p class="subtitle"><span class="accused-icon">${accused.icon}</span> <strong>${accused.name}</strong>: ¿culpable o inocente?</p>
-    <p class="hint">El resto vota en su celular (${accused.name} no vota su propio juicio)...</p>
+    <h1>${t("mafia.screen.trialTitle")}</h1>
+    <p class="subtitle"><span class="accused-icon">${accused.icon}</span> ${t("mafia.screen.trialSubtitle", { name: accused.name })}</p>
+    <p class="hint">${t("mafia.screen.trialHint", { name: accused.name })}</p>
     <p class="hint" id="verdictProgress"></p>
     <p class="night-timer" id="timerDisplay"></p>
   `);
-  timerFormat = (s) => `⏳ ${s}s para el veredicto`;
-  speak(`¿Es ${accused.name} culpable o inocente?`);
+  timerFormat = (s) => t("mafia.screen.timer.trial", { seconds: s });
+  speak(t("mafia.screen.speak.trial", { name: accused.name }));
 });
 
 socket.on("day:verdictProgress", ({ votedIds }) => {
   const el = document.getElementById("verdictProgress");
-  if (el) el.textContent = `Votaron ${votedIds.length}...`;
+  if (el) el.textContent = t("mafia.screen.verdictProgress", { count: votedIds.length });
 });
 
 socket.on("day:resolved", ({ executed, guiltyCount, innocentCount, accused, deaths, transformations, winner, roster }) => {
   const steps = [
-    { html: narrativeBeat("⚖️", "El pueblo se reúne bajo el sol para dictar sentencia...") },
-    { html: narrativeBeat("🗣️", "Los votos se cuentan, uno por uno...") },
+    { html: narrativeBeat("⚖️", t("mafia.screen.beat.sentence")) },
+    { html: narrativeBeat("🗣️", t("mafia.screen.beat.counting")) },
   ];
 
   const revenge = deaths.slice(1); // si el ejecutado era el Cazador, se lleva a alguien más
@@ -664,39 +656,27 @@ socket.on("day:resolved", ({ executed, guiltyCount, innocentCount, accused, deat
 
   if (executed) {
     steps.push({
-      html: narrativeBeat(
-        "💀",
-        `<strong>${accused.icon} ${accused.name}</strong> es declarado/a culpable... y ejecutado/a ante la mirada de todos.`
-      ),
+      html: narrativeBeat("💀", t("mafia.screen.beat.executed", { icon: accused.icon, name: accused.name })),
       delayMs: 2600,
       sfx: "death",
     });
     revenge.forEach((extra) => {
       steps.push({
-        html: narrativeBeat(
-          "🏹",
-          `Pero antes de caer, algo se despierta... y arrastra también a <strong>${extra.icon} ${extra.name}</strong>.`
-        ),
+        html: narrativeBeat("🏹", t("mafia.screen.beat.hunterRevenge", { icon: extra.icon, name: extra.name })),
         delayMs: 2600,
         sfx: "death",
       });
     });
   } else {
     steps.push({
-      html: narrativeBeat(
-        "🕊️",
-        `La duda pesa más que la certeza... <strong>${accused.icon} ${accused.name}</strong> es absuelto/a.`
-      ),
+      html: narrativeBeat("🕊️", t("mafia.screen.beat.acquitted", { icon: accused.icon, name: accused.name })),
       delayMs: 2600,
     });
   }
 
-  (transformations || []).forEach((t) => {
+  (transformations || []).forEach((tr) => {
     steps.push({
-      html: narrativeBeat(
-        "🐺",
-        `¡<strong>${t.icon} ${t.name}</strong> no pudo ser abatido/a! Algo despierta en su interior... y ahora corre con la Mafia.`
-      ),
+      html: narrativeBeat("🐺", t("mafia.screen.beat.lycanTurns", { icon: tr.icon, name: tr.name })),
       delayMs: 2600,
       sfx: "ominous",
     });
@@ -704,23 +684,23 @@ socket.on("day:resolved", ({ executed, guiltyCount, innocentCount, accused, deat
 
   const extraDeathsHtml = revenge.length
     ? `<ul class="death-list">${revenge
-        .map((d) => `<li>💀 <span class="death-icon">${d.icon}</span> <strong>${d.name}</strong> también murió.</li>`)
+        .map((d) => `<li>💀 <span class="death-icon">${d.icon}</span> ${t("mafia.screen.alsoDied", { name: d.name })}</li>`)
         .join("")}</ul>`
     : "";
 
   let finalHtml = `
-    <h1>⚰️ Veredicto</h1>
+    <h1>${t("mafia.screen.verdictTitle")}</h1>
     <p class="subtitle">
       ${
         executed && accusedTransformed
-          ? `🐺 <span class="accused-icon">${accused.icon}</span> <strong>${accused.name}</strong> sobrevivió a la ejecución... y ahora es parte de la Mafia.`
+          ? `🐺 <span class="accused-icon">${accused.icon}</span> ${t("mafia.screen.verdict.survived", { name: accused.name })}`
           : executed
-          ? `💀 <span class="accused-icon">${accused.icon}</span> <strong>${accused.name}</strong> fue ejecutado/a.`
-          : `✅ <span class="accused-icon">${accused.icon}</span> <strong>${accused.name}</strong> fue absuelto/a. Sigue en el juego.`
+          ? `💀 <span class="accused-icon">${accused.icon}</span> ${t("mafia.screen.verdict.executed", { name: accused.name })}`
+          : `✅ <span class="accused-icon">${accused.icon}</span> ${t("mafia.screen.verdict.acquitted", { name: accused.name })}`
       }
     </p>
     ${extraDeathsHtml}
-    <p class="hint">Culpable: ${guiltyCount} · Inocente: ${innocentCount}</p>
+    <p class="hint">${t("mafia.screen.verdictCount", { guilty: guiltyCount, innocent: innocentCount })}</p>
   `;
 
   if (winner) {

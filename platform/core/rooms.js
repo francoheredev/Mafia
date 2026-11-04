@@ -5,6 +5,7 @@
 // de salas y estas mismas funciones de bajo nivel.
 
 const { randomUUID } = require("crypto");
+const { message } = require("./i18n");
 
 // --- Estado en memoria (alcanza para el esqueleto; en un server real
 //     esto podría vivir en Redis si hay más de un proceso) ---
@@ -20,9 +21,13 @@ function capPush(list, item, max = 200) {
 }
 
 // Historial público de la partida: registra solo lo que ya se anuncia en
-// pantalla, para que se pueda repasar más tarde.
+// pantalla, para que se pueda repasar más tarde. `text` puede ser un texto
+// plano o un mensaje traducible { key, params } (ver platform/core/i18n.js):
+// en ese caso la entrada lleva la clave para que cada cliente la muestre en
+// su idioma, más el texto en español como respaldo.
 function pushHistory(io, room, roomCode, icon, text) {
-  const entry = { id: randomUUID(), ts: Date.now(), icon, text };
+  const content = typeof text === "string" ? { text } : message(text.key, text.params);
+  const entry = { id: randomUUID(), ts: Date.now(), icon, ...content };
   capPush(room.history, entry);
   io.to(roomCode).emit("history:entry", entry);
 }

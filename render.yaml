@@ -5,3 +5,8 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: npm start
+    envVars:
+      # API key de DeepL para las traducciones (platform/core/i18n.js).
+      # sync: false = se carga a mano en el panel de Render, nunca en el repo.
+      - key: DEEPL_API_KEY
+        sync: false

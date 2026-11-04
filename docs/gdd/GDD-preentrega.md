@@ -22,7 +22,7 @@
 | **Duración de una partida** | 10 a 15 minutos |
 | **Edad sugerida** | +13 años |
 | **Instalación** | Ninguna: se entra escaneando un código QR |
-| **Idioma** | Español |
+| **Idiomas** | Español e inglés (traducción automática con la API de DeepL; se elige en el menú) |
 
 ## 2. Concepto
 
@@ -211,7 +211,8 @@ El tono mezcla **humor y drama**. La pantalla narra cada noche y cada amanecer e
 - **Cliente:** HTML, CSS y JavaScript sin frameworks, publicado en **Vercel**.
 - **Servidor:** Node.js + Express + **Socket.IO** para la comunicación en tiempo real, publicado en **Render**.
 - **Plataforma QRmania:** un núcleo reutilizable (salas, lobby, reconexión, chat, timers) sobre el que cada juego se monta como un *plugin*. *La Mafia* es el primero.
-- **Pruebas:** 26 tests automáticos del servidor que cubren el reparto de roles, la noche, la victoria de cada bando, el Bufón, el Lycan, la reconexión y el reinicio.
+- **Traducciones:** ningún texto está escrito en el código. El catálogo base en español (`public/locales/es.json`) se traduce a otros idiomas con la **API de DeepL**: el servidor pide la traducción la primera vez que alguien elige un idioma, protege los nombres de jugadores y el formato, y la guarda en caché. El servidor manda claves (no textos), así cada dispositivo muestra todo en su propio idioma.
+- **Pruebas:** 27 tests automáticos del servidor que cubren el reparto de roles, la noche, la victoria de cada bando, el Bufón, el Lycan, la reconexión, el reinicio y las traducciones.
 
 ## 12. Alcance
 
@@ -221,6 +222,7 @@ El tono mezcla **humor y drama**. La pantalla narra cada noche y cada amanecer e
 - Condiciones de victoria, derrota y empate, con pantalla de fin.
 - Flujo cerrado: menú → partida → fin → reiniciar o volver al menú.
 - Ayudas de reglas, chat, historial y reconexión.
+- Juego en español e inglés, traducido con la API de DeepL (selector de idioma en el menú y en la pantalla de unirse).
 
 ### 12.2 Para la entrega final
 - **Tutorial / partida guiada** para quien nunca jugó Mafia: es la prioridad, porque en el playtesting las reglas costaron al principio (ver sección 14).

@@ -3,3 +3,6 @@ npm-debug.log*
 .env
 .DS_Store
 *.log
+
+# Caché local de traducciones generadas por la API (platform/core/i18n.js)
+.i18n-cache/

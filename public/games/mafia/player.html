@@ -3,31 +3,32 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-<title>La Mafia — Unirse</title>
+<title data-i18n="mafia.player.pageTitle"></title>
 <link rel="stylesheet" href="/platform/platform.css" />
 <link rel="stylesheet" href="/games/mafia/mafia.css" />
 </head>
 <body class="player">
   <main class="join-screen">
-    <h1>🐺 La Mafia</h1>
+    <div id="langSelector" class="lang-selector-slot"></div>
+    <h1 data-i18n="mafia.title"></h1>
 
     <form id="joinForm">
       <label>
-        Código de sala
+        <span data-i18n="mafia.player.roomCode"></span>
         <input id="codeInput" maxlength="4" placeholder="ABCD" autocapitalize="characters" required />
       </label>
       <label>
-        Tu nombre
-        <input id="nameInput" maxlength="20" placeholder="Tu nombre" required />
+        <span data-i18n="mafia.player.yourName"></span>
+        <input id="nameInput" maxlength="20" data-i18n-placeholder="mafia.player.yourName" required />
       </label>
-      <button type="submit">Unirme</button>
+      <button type="submit" data-i18n="mafia.player.join"></button>
     </form>
 
     <p id="errorMsg" class="error"></p>
 
     <div id="waitingRoom" class="hidden">
-      <p>✅ Estás adentro, <strong id="myName"></strong>.</p>
-      <p class="hint">Esperando a que el resto se una / arranque la partida...</p>
+      <p id="youAreIn"></p>
+      <p class="hint" data-i18n="mafia.player.waitingStart"></p>
     </div>
   </main>
 
@@ -58,13 +59,13 @@
     <div class="role-modal-panel">
       <button id="chatModalClose" class="role-modal-close">✕</button>
       <div class="chat-tabs">
-        <button type="button" id="chatTabGeneral" class="chat-tab active" data-channel="general">General</button>
-        <button type="button" id="chatTabFantasmas" class="chat-tab" data-channel="fantasmas" disabled>Fantasmas</button>
+        <button type="button" id="chatTabGeneral" class="chat-tab active" data-channel="general" data-i18n="mafia.player.chatGeneral"></button>
+        <button type="button" id="chatTabFantasmas" class="chat-tab" data-channel="fantasmas" disabled data-i18n="mafia.player.chatGhosts"></button>
       </div>
       <ul id="chatLog" class="chat-log"></ul>
       <form id="chatForm" class="chat-input-row">
-        <input id="chatInput" maxlength="300" placeholder="Escribí un mensaje..." autocomplete="off" />
-        <button type="submit">Enviar</button>
+        <input id="chatInput" maxlength="300" data-i18n-placeholder="mafia.player.chatPlaceholder" autocomplete="off" />
+        <button type="submit" data-i18n="mafia.player.send"></button>
       </form>
     </div>
   </div>
@@ -74,13 +75,14 @@
   <div id="historyModal" class="role-modal hidden">
     <div class="role-modal-panel">
       <button id="historyModalClose" class="role-modal-close">✕</button>
-      <h2>📜 Historial</h2>
+      <h2 data-i18n="platform.history.title"></h2>
       <ul id="historyList" class="history-list"></ul>
     </div>
   </div>
 
   <script src="/mafia/rules-data.js"></script>
   <script src="/platform/config.js"></script>
+  <script src="/platform/i18n.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/platform/platform.js"></script>
   <script src="/platform/roster.js"></script>

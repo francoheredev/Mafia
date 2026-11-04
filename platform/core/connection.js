@@ -16,6 +16,7 @@
 const { randomUUID } = require("crypto");
 const { rooms, publicPlayerList, capPush, generateRoomCode } = require("./rooms");
 const { getGame, listGames } = require("./registry");
+const { t, fail, message } = require("./i18n");
 
 // Cada jugador recibe uno de estos como avatar al unirse. Nota de alcance:
 // el contrato de plugin (ver plan de migración) no define ningún hook para
@@ -55,13 +56,13 @@ function attachPluginEvents(io, socket) {
       const { roomCode } = socket.data;
       const room = roomCode && rooms[roomCode];
       if (!room) {
-        ack?.({ ok: false, error: "La sala ya no existe." });
+        ack?.(fail("error.roomGone"));
         return;
       }
       const plugin = getGame(room.gameId);
       const handler = plugin?.socketHandlers?.[eventName];
       if (!handler) {
-        ack?.({ ok: false, error: "Evento no soportado en este juego." });
+        ack?.(fail("error.eventUnsupported"));
         return;
       }
       handler({ io, socket, room, roomCode }, data, ack);
@@ -108,7 +109,7 @@ function attachConnectionHandlers(io, socket) {
       // que mandar siempre el gameId que le corresponde a su propia
       // página — si no lo manda, o manda uno que no está registrado, no
       // hay sala que crear.
-      socket.emit("screen:createError", { error: "Juego desconocido." });
+      socket.emit("screen:createError", fail("error.unknownGame"));
       return;
     }
     const code = generateRoomCode();
@@ -135,7 +136,7 @@ function attachConnectionHandlers(io, socket) {
   socket.on("player:join", ({ code, name }, ack) => {
     const room = rooms[code];
     if (!room) {
-      ack?.({ ok: false, error: "Esa sala no existe. Revisá el código." });
+      ack?.(fail("error.roomNotFound"));
       return;
     }
     if (room.started) {
@@ -143,16 +144,16 @@ function attachConnectionHandlers(io, socket) {
       // "adentro" pero sin rol asignado — y si termina siendo blanco de una
       // acción de otro jugador (ej. el Vidente lo investiga), el servidor
       // se cae al intentar leer un rol que no existe.
-      ack?.({ ok: false, error: "La partida ya empezó — pedile al anfitrión que arranque una nueva." });
+      ack?.(fail("error.gameAlreadyStarted"));
       return;
     }
-    const cleanName = (name || "").trim().slice(0, 20) || "Jugador";
+    const cleanName = (name || "").trim().slice(0, 20) || t("error.defaultPlayerName");
 
     const nameTaken = Object.values(room.players).some(
       (p) => p.connected && p.name.toLowerCase() === cleanName.toLowerCase()
     );
     if (nameTaken) {
-      ack?.({ ok: false, error: "Ya hay alguien conectado con ese nombre en la sala." });
+      ack?.(fail("error.nameTaken"));
       return;
     }
 
@@ -179,7 +180,7 @@ function attachConnectionHandlers(io, socket) {
     const { role, roomCode } = socket.data;
     const room = rooms[roomCode];
     if (!room || role !== "screen") {
-      ack?.({ ok: false, error: "No autorizado." });
+      ack?.(fail("error.unauthorized"));
       return;
     }
     ack?.({
@@ -197,17 +198,17 @@ function attachConnectionHandlers(io, socket) {
   socket.on("player:rejoin", ({ code, token }, ack) => {
     const room = rooms[code];
     if (!room) {
-      ack?.({ ok: false, error: "Esa sala ya no existe." });
+      ack?.(fail("error.roomGone"));
       return;
     }
     const entry = Object.entries(room.players).find(([, p]) => p.token === token);
     if (!entry) {
-      ack?.({ ok: false, error: "No encontramos tu sesión en esta sala." });
+      ack?.(fail("error.sessionNotFound"));
       return;
     }
     const [oldId, player] = entry;
     if (player.kicked) {
-      ack?.({ ok: false, error: "Fuiste expulsado de esta sala." });
+      ack?.(fail("error.youWereKicked"));
       return;
     }
 
@@ -241,13 +242,13 @@ function attachConnectionHandlers(io, socket) {
   //     contrato de plugin — qué significa "morir" para ese juego.
   socket.on("player:kick", ({ targetId }, ack) => {
     if (socket.data.role !== "screen") {
-      ack?.({ ok: false, error: "Solo la pantalla puede expulsar." });
+      ack?.(fail("error.onlyScreenKicks"));
       return;
     }
     const { roomCode } = socket.data;
     const room = rooms[roomCode];
     if (!room) {
-      ack?.({ ok: false, error: "La sala ya no existe." });
+      ack?.(fail("error.roomGone"));
       return;
     }
     ack?.(kickPlayer(io, room, roomCode, targetId));
@@ -264,26 +265,26 @@ function attachConnectionHandlers(io, socket) {
     const { roomCode } = socket.data;
     const room = rooms[roomCode];
     if (!room) {
-      ack?.({ ok: false, error: "La sala ya no existe." });
+      ack?.(fail("error.roomGone"));
       return;
     }
     const channelConfig = findChatChannel(room, channel);
     if (!channelConfig || !room.chat[channel]) {
-      ack?.({ ok: false, error: "Canal de chat inválido." });
+      ack?.(fail("error.invalidChannel"));
       return;
     }
     const sender = room.players[socket.id];
     if (!sender) {
-      ack?.({ ok: false, error: "No estás en esta sala." });
+      ack?.(fail("error.notInRoom"));
       return;
     }
     if (!channelConfig.canSend(room, socket.id)) {
-      ack?.({ ok: false, error: "No podés usar este canal de chat." });
+      ack?.(fail("error.channelForbidden"));
       return;
     }
     const cleanText = (text || "").trim().slice(0, 300);
     if (!cleanText) {
-      ack?.({ ok: false, error: "Escribí algo primero." });
+      ack?.(fail("error.emptyMessage"));
       return;
     }
 
@@ -305,16 +306,16 @@ function attachConnectionHandlers(io, socket) {
     const { roomCode } = socket.data;
     const room = rooms[roomCode];
     if (!room) {
-      ack?.({ ok: false, error: "La sala ya no existe." });
+      ack?.(fail("error.roomGone"));
       return;
     }
     const channelConfig = findChatChannel(room, channel);
     if (!channelConfig || !room.chat[channel]) {
-      ack?.({ ok: false, error: "Canal de chat inválido." });
+      ack?.(fail("error.invalidChannel"));
       return;
     }
     if (!channelConfig.canSend(room, socket.id)) {
-      ack?.({ ok: false, error: "No podés usar este canal de chat." });
+      ack?.(fail("error.channelForbidden"));
       return;
     }
     ack?.({ ok: true, messages: room.chat[channel] });
@@ -325,7 +326,7 @@ function attachConnectionHandlers(io, socket) {
     const { roomCode } = socket.data;
     const room = rooms[roomCode];
     if (!room) {
-      ack?.({ ok: false, error: "La sala ya no existe." });
+      ack?.(fail("error.roomGone"));
       return;
     }
     ack?.({ ok: true, entries: room.history });
@@ -360,13 +361,13 @@ function findChatChannel(room, channelId) {
 
 function kickPlayer(io, room, roomCode, targetId) {
   const target = room.players[targetId];
-  if (!target) return { ok: false, error: "Ese jugador no existe." };
+  if (!target) return fail("error.playerNotFound");
   const targetSocket = io.sockets.sockets.get(targetId);
 
   if (!room.started) {
     delete room.players[targetId];
     if (targetSocket) {
-      targetSocket.emit("player:kicked", { reason: "Fuiste expulsado por el anfitrión." });
+      targetSocket.emit("player:kicked", { reason: message("kick.reason") });
       targetSocket.disconnect(true);
     }
     io.to(roomCode).emit("lobby:update", { players: publicPlayerList(room) });

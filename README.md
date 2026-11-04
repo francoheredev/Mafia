@@ -36,6 +36,24 @@ Con eso el servidor queda escuchando en `http://localhost:3000`. Abrí:
 
 Para probarlo con tu celular de verdad (no solo en la misma compu), necesitás que el celular esté en la **misma red WiFi** que la compu, y usar la IP local de la compu en vez de `localhost` (ej. `http://192.168.0.15:3000/mafia/player`). Podés ver tu IP local con `ipconfig` (Windows) o `ifconfig`/`ip a` (Mac/Linux).
 
+## Traducciones (API de DeepL)
+
+Ningún texto visible está escrito en el código: todo se pide por clave.
+
+- **Catálogo fuente:** `public/locales/es.json` (clave → texto en español) y la lista de idiomas en `public/locales/languages.json`.
+- **Otros idiomas (por ahora inglés):** no están escritos en ningún archivo. El servidor los pide a la **API de DeepL** la primera vez que alguien elige ese idioma (`GET /api/i18n/en`), protege los `{marcadores}` y el HTML para que la API no los toque, y guarda el resultado en caché (memoria + `.i18n-cache/`, fuera del repo). Si un texto del catálogo cambia, solo se vuelve a traducir ese texto. Ver `platform/core/i18n.js`.
+- **Cliente:** `public/platform/i18n.js` (`Platform.i18n.t("clave", { params })` y atributos `data-i18n` en el HTML). El idioma se elige con el selector del menú principal (fija el de la pantalla compartida) y en la pantalla de unirse del celular; la primera vez se toma el idioma del navegador.
+- **El servidor manda claves, no textos:** errores (`errorKey`), historial (`key` + `params`) y roles (`roleId`); cada dispositivo los muestra en su idioma.
+- **API key:** variable de entorno `DEEPL_API_KEY` (cuenta gratuita de DeepL API Free). En Render se carga en *Environment*; nunca va en el repo. Sin la key, el juego funciona igual pero todo queda en español.
+
+Para probar en local con la API real:
+
+```bash
+DEEPL_API_KEY=tu-key npm start
+```
+
+(En PowerShell: `$env:DEEPL_API_KEY="tu-key"; npm start`.)
+
 ## Test automático
 
 Hay scripts que simulan jugadores conectándose sin necesidad de abrir nada a mano:
